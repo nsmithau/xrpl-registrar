@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+
+# Local embedded-database data directory (DATABASE_DIR)
+data/
+
+# Internal design docs (PRD, decision record, architecture, working context)
+# are kept private; the public repo ships code only.
+docs/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store

@@ -1,0 +1,129 @@
+/**
+ * Schema migrations. Kept as inline SQL constants (not loose .sql files) so the
+ * built artifact is self-contained and no asset copying is needed at build time.
+ *
+ * The data model follows the architecture outline: membership (`accounts`,
+ * `account_issuance`) is kept separate from completeness (`coverage`), raw
+ * blobs are retained so every derived value is re-derivable, and every
+ * transaction carries provenance (source endpoint + fetch time).
+ */
+
+export interface Migration {
+  readonly id: number;
+  readonly name: string;
+  readonly sql: string;
+}
+
+const CORE_SCHEMA = /* sql */ `
+CREATE TABLE issuances (
+  id                   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  kind                 TEXT NOT NULL CHECK (kind IN ('mpt', 'iou')),
+  mpt_issuance_id      TEXT,
+  currency             TEXT,
+  issuer_account       TEXT,
+  discovery_strategy   TEXT NOT NULL DEFAULT 'auto',
+  requires_auth        BOOLEAN,
+  backfill_from_ledger BIGINT NOT NULL DEFAULT 0,
+  enabled              BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- An MPT is identified by mpt_issuance_id; an IOU by (currency, issuer_account).
+  CONSTRAINT issuances_identity_shape CHECK (
+    (kind = 'mpt' AND mpt_issuance_id IS NOT NULL AND currency IS NULL AND issuer_account IS NULL)
+    OR
+    (kind = 'iou' AND currency IS NOT NULL AND issuer_account IS NOT NULL AND mpt_issuance_id IS NULL)
+  )
+);
+CREATE UNIQUE INDEX issuances_mpt_uq ON issuances (mpt_issuance_id) WHERE mpt_issuance_id IS NOT NULL;
+CREATE UNIQUE INDEX issuances_iou_uq ON issuances (currency, issuer_account) WHERE kind = 'iou';
+
+-- Every account ever in scope. Append-only; exited holders are never removed.
+CREATE TABLE accounts (
+  address           TEXT PRIMARY KEY,
+  first_seen_ledger BIGINT
+);
+
+-- Why an account is in scope, and since when. An account may be in scope for
+-- several issuances, entering at different times.
+CREATE TABLE account_issuance (
+  address                  TEXT NOT NULL REFERENCES accounts (address),
+  issuance_id              BIGINT NOT NULL REFERENCES issuances (id),
+  discovered_via           TEXT NOT NULL,
+  first_acquisition_ledger BIGINT,
+  PRIMARY KEY (address, issuance_id)
+);
+
+-- Deduplicated across issuances and accounts. Raw blobs are retained so every
+-- derived value is reproducible from source.
+CREATE TABLE transactions (
+  hash            TEXT PRIMARY KEY,
+  ledger_index    BIGINT NOT NULL,
+  -- Clio's compact transaction identifier. Named clio_ctid because bare "ctid"
+  -- collides with a Postgres system column.
+  clio_ctid       TEXT,
+  close_time_iso  TIMESTAMPTZ,
+  tx_type         TEXT NOT NULL,
+  mpt_issuance_id TEXT,
+  tx_blob         BYTEA NOT NULL,
+  meta_blob       BYTEA NOT NULL,
+  source_endpoint TEXT NOT NULL,
+  fetched_at      TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX transactions_ledger_idx ON transactions (ledger_index);
+CREATE INDEX transactions_mpt_idx ON transactions (mpt_issuance_id) WHERE mpt_issuance_id IS NOT NULL;
+
+-- Join between transactions and in-scope accounts. Ingest idempotency key.
+CREATE TABLE account_transactions (
+  hash    TEXT NOT NULL REFERENCES transactions (hash),
+  address TEXT NOT NULL REFERENCES accounts (address),
+  PRIMARY KEY (hash, address)
+);
+CREATE INDEX account_transactions_addr_idx ON account_transactions (address);
+
+-- Derived, per account per transaction per issuance. Reproducible from blobs.
+CREATE TABLE balance_deltas (
+  hash        TEXT NOT NULL REFERENCES transactions (hash),
+  address     TEXT NOT NULL REFERENCES accounts (address),
+  issuance_id BIGINT NOT NULL REFERENCES issuances (id),
+  -- Signed amount as a string (MPTAmount serialises as a string as of xrpl v5).
+  delta       TEXT NOT NULL,
+  PRIMARY KEY (hash, address, issuance_id)
+);
+
+-- Completeness, kept separate from membership: which ledger range is guaranteed
+-- complete for an account, and why that range and not more.
+CREATE TABLE coverage (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  address     TEXT NOT NULL REFERENCES accounts (address),
+  from_ledger BIGINT NOT NULL,
+  to_ledger   BIGINT NOT NULL,
+  reason      TEXT NOT NULL
+);
+CREATE INDEX coverage_addr_idx ON coverage (address);
+
+-- Resumable backfill state: checkpoint the last marker after each page.
+CREATE TABLE backfill_job (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  address     TEXT NOT NULL REFERENCES accounts (address),
+  issuance_id BIGINT NOT NULL REFERENCES issuances (id),
+  from_ledger BIGINT,
+  to_ledger   BIGINT,
+  last_marker JSONB,
+  status      TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  tx_count    BIGINT NOT NULL DEFAULT 0,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (address, issuance_id)
+);
+
+CREATE TABLE reconciliation_run (
+  id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  issuance_id   BIGINT NOT NULL REFERENCES issuances (id),
+  ran_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  passed        BOOLEAN NOT NULL,
+  discrepancies INTEGER NOT NULL DEFAULT 0
+);
+`;
+
+export const MIGRATIONS: readonly Migration[] = [
+  { id: 1, name: "core_schema", sql: CORE_SCHEMA },
+];

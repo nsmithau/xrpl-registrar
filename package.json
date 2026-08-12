@@ -1,0 +1,67 @@
+{
+  "name": "xrpl-ingestor",
+  "version": "0.0.0",
+  "description": "Open-source, self-hosted XRPL transaction archive scoped to token issuances, sourced from Clio.",
+  "license": "Apache-2.0",
+  "author": "nsmithau (https://github.com/nsmithau)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nsmithau/xrpl-ingestor.git"
+  },
+  "homepage": "https://github.com/nsmithau/xrpl-ingestor#readme",
+  "bugs": {
+    "url": "https://github.com/nsmithau/xrpl-ingestor/issues"
+  },
+  "keywords": [
+    "xrpl",
+    "clio",
+    "xrpld",
+    "archive",
+    "ingestor",
+    "mpt",
+    "iou"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "dev": "tsx watch src/index.ts",
+    "demo": "tsx examples/mpt-demo.ts",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "xrpl": "5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vitest": "^2.1.0"
+  }
+}
