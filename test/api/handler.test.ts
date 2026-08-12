@@ -111,9 +111,20 @@ describe("ArchiveApi", () => {
     expect(warningIds(res.warnings)).toContain(65002);
   });
 
-  it("returns an explicit unsupported error for unknown and unimplemented methods", async () => {
+  it("returns an explicit unsupported error for genuinely unknown methods", async () => {
     expect((await api.handle({ command: "frobnicate", api_version: 2 })).result.error).toBe("unsupported");
-    expect((await api.handle({ command: "account_info", account: "rInScope", api_version: 2 })).result.error).toBe("unsupported");
+  });
+
+  it("routes the state-reconstruction methods, failing closed when out of scope", async () => {
+    expect(
+      (await api.handle({ command: "account_info", account: "rStranger", api_version: 2 })).result.error,
+    ).toBe("notInArchive");
+    expect(
+      (await api.handle({ command: "account_lines", account: "rStranger", api_version: 2 })).result.error,
+    ).toBe("notInArchive");
+    expect(
+      (await api.handle({ command: "mpt_holders", mpt_issuance_id: "UNTRACKED", api_version: 2 })).result.error,
+    ).toBe("notInArchive");
   });
 
   it("forwards out-of-scope reads only when explicitly enabled", async () => {

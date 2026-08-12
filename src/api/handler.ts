@@ -3,7 +3,9 @@ import { nullLogger, type Logger } from "../logging/logger.js";
 
 import { errorResult, invalidApiVersion, unsupported } from "./errors.js";
 import { DisabledForwarder, type Forwarder } from "./forwarder.js";
+import { handleAccountInfo, handleAccountLines } from "./methods/accountState.js";
 import { handleAccountTx } from "./methods/accountTx.js";
+import { handleMptHolders } from "./methods/mptHolders.js";
 import { handleTx } from "./methods/tx.js";
 import { ScopeRepository } from "./scope.js";
 import type { ApiRequest, ApiResponse, MethodResult } from "./types.js";
@@ -13,7 +15,14 @@ import { forwardedNotArchiveWarning, localWarnings } from "./warnings.js";
 const NODE_STATE = new Set(["server_info", "ledger", "fee"]);
 const SUBMISSION = new Set(["submit", "submit_multisigned"]);
 const ARCHIVE_SCOPED = new Set(["account_tx", "tx", "account_info", "account_lines", "mpt_holders"]);
-const IMPLEMENTED_ARCHIVE = new Set(["account_tx", "tx"]);
+const ACCOUNT_SCOPED = new Set(["account_tx", "account_info", "account_lines"]);
+const IMPLEMENTED_ARCHIVE = new Set([
+  "account_tx",
+  "tx",
+  "account_info",
+  "account_lines",
+  "mpt_holders",
+]);
 
 export interface ArchiveApiOptions {
   readonly db: Database;
@@ -64,21 +73,35 @@ export class ArchiveApi {
 
       // Out-of-scope account reads: fail closed by default, forward only if
       // explicitly enabled (and then clearly marked as not archive-sourced).
-      if (cmd === "account_tx" && this.#forwardUnknown) {
+      if (this.#forwardUnknown && ACCOUNT_SCOPED.has(cmd)) {
         const account = typeof req.account === "string" ? req.account : undefined;
         if (account && !(await this.#scope.inScope(account))) {
           return this.#forward(req);
         }
       }
 
-      const mr =
-        cmd === "account_tx"
-          ? await handleAccountTx(this.#db, this.#scope, req)
-          : await handleTx(this.#db, this.#scope, req);
+      const mr = await this.#dispatchArchive(cmd, req);
       return this.#localFrom(mr);
     }
 
     return this.#local(unsupported(cmd));
+  }
+
+  async #dispatchArchive(cmd: string, req: ApiRequest): Promise<MethodResult> {
+    switch (cmd) {
+      case "account_tx":
+        return handleAccountTx(this.#db, this.#scope, req);
+      case "tx":
+        return handleTx(this.#db, this.#scope, req);
+      case "account_info":
+        return handleAccountInfo(this.#db, this.#scope, req);
+      case "account_lines":
+        return handleAccountLines(this.#db, this.#scope, req);
+      case "mpt_holders":
+        return handleMptHolders(this.#db, this.#scope, req);
+      default:
+        return { result: unsupported(cmd) };
+    }
   }
 
   async #local(result: Record<string, unknown>): Promise<ApiResponse> {
