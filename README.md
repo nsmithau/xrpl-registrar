@@ -36,6 +36,8 @@ All configuration is read from the environment. Copy [`.env.example`](.env.examp
 cp .env.example .env
 ```
 
+The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-file-if-exists`), so you can run them with no inline variables. An inline variable still overrides the file — e.g. `CLIO_ENDPOINT=… pnpm serve`.
+
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
 | `CLIO_ENDPOINT` | **yes** | — | WebSocket URL of a **full-history** Clio server. No default: a missing or wrong source is an error, never a silent fallback. |

@@ -45,18 +45,21 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "dev": "tsx watch src/index.ts",
-    "demo": "tsx examples/mpt-demo.ts",
+    "demo": "tsx --env-file-if-exists=.env examples/mpt-demo.ts",
+    "serve": "tsx --env-file-if-exists=.env examples/serve.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
+    "ws": "^8.21.3",
     "xrpl": "5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
     "eslint": "^9.17.0",
     "prettier": "^3.4.0",
     "tsx": "^4.19.0",
