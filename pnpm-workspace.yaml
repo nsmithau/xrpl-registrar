@@ -1,3 +1,5 @@
+allowBuilds:
+  esbuild: true
 # esbuild ships a prebuilt binary via its install script; vitest/tsx need it.
 onlyBuiltDependencies:
   - esbuild
