@@ -22,6 +22,14 @@ export {
   AccountRepository,
   type AccountIssuanceRow,
 } from "./repositories/accounts.js";
+export { insertTransactionRows } from "./repositories/transactions.js";
+export {
+  BackfillJobRepository,
+  checkpointJob,
+  completeJob,
+  type BackfillJob,
+  type BackfillStatus,
+} from "./repositories/backfillJobs.js";
 
 /**
  * Open the archive database (in-process PGlite) and bring it up to the latest
