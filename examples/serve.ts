@@ -19,6 +19,9 @@ import {
   BackfillWorker,
   ClioForwarder,
   IssuanceRepository,
+  LiveTail,
+  XrplTailSource,
+  backfillGap,
   consoleLogger,
   createClioClient,
   discover,
@@ -55,6 +58,30 @@ const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
 const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: consoleLogger });
 const bound = await server.start();
 
+// Live tail: keep the archive current. Subscribe to every in-scope account and
+// anchor the gap tracker at the backfill high-water, so the gap since backfill
+// is healed on the first ledger and new transactions are ingested as they land.
+const scopeRows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+const scope = scopeRows.rows.map((r) => r.address);
+let tail: LiveTail | undefined;
+let tailSource: XrplTailSource | undefined;
+if (scope.length > 0) {
+  const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
+  const highWater = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : undefined;
+  tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: scope, reader: client });
+  tail = new LiveTail({
+    db,
+    source: tailSource,
+    logger: consoleLogger,
+    ...(highWater !== undefined ? { startLedger: highWater } : {}),
+    onGap: async (range) => {
+      await backfillGap(client, db, scope, range);
+    },
+  });
+  void tail.run();
+  console.log(`Live tail    : ${scope.length} account(s), healing from ledger ${highWater ?? "(none)"}`);
+}
+
 console.log(`\nArchive serving (Clio-compatible):`);
 console.log(`  WebSocket    : ws://127.0.0.1:${bound}`);
 console.log(`  HTTP JSON-RPC: http://127.0.0.1:${bound}`);
@@ -90,6 +117,8 @@ console.log(`\nPress Ctrl-C to stop.`);
 
 process.on("SIGINT", () => {
   void (async () => {
+    tail?.stop();
+    if (tailSource) await tailSource.close();
     await server.stop();
     if (adminServer) await adminServer.stop();
     await client.disconnect();

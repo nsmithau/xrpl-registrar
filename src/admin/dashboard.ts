@@ -85,7 +85,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   main { padding: 0 24px 24px; }
   .card {
     background: hsl(var(--card)); border: 1px solid hsl(var(--border));
-    border-radius: var(--radius); overflow: hidden;
+    border-radius: var(--radius); overflow-x: auto;
   }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid hsl(var(--border)); white-space: nowrap; }
@@ -124,7 +124,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <table>
       <thead><tr>
         <th>ID</th><th>Kind</th><th>Identifier</th><th>Strategy</th><th>Enabled</th>
-        <th>Accounts</th><th>Backfill</th><th>Coverage</th><th>Reconciliation</th>
+        <th>Accounts</th><th>Txns</th><th>Latest</th><th>Backfill</th><th>Coverage</th><th>Reconciliation</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -181,6 +181,8 @@ export const DASHBOARD_HTML = `<!doctype html>
     cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
+    cell(tr, s.transactions);
+    cell(tr, s.latestLedger === null ? "\\u2014" : s.latestLedger, "mono");
     var bfTd = document.createElement("td");
     var pct = total ? Math.round((bf.completed / total) * 100) : 0;
     bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span>';

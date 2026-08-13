@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
+import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 
 describe("AdminApi", () => {
   let db: Database;
@@ -31,6 +32,9 @@ describe("AdminApi", () => {
       { address: "rA", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
       { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 150 },
     ]);
+    const txns = new TransactionRepository(db);
+    await txns.ingest({ hash: "T1", ledgerIndex: 120, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rA"] });
+    await txns.ingest({ hash: "T2", ledgerIndex: 190, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rB"] });
     await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1,$2,$3,$4)", ["rA", 100, 200, "t"]);
     await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'completed',5)", ["rA", iss.id]);
     await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'running',2)", ["rB", iss.id]);
@@ -38,6 +42,8 @@ describe("AdminApi", () => {
 
     const status = (await api.getIssuance(iss.id))!;
     expect(status.accounts).toBe(2);
+    expect(status.transactions).toBe(2);
+    expect(status.latestLedger).toBe(190);
     expect(status.backfill).toMatchObject({ completed: 1, running: 1, totalTx: 7 });
     expect(status.coverage).toEqual({ min: 100, max: 200 });
     expect(status.lastReconciliation).toMatchObject({ passed: true, discrepancies: 0 });

@@ -34,6 +34,10 @@ export interface BackfillSummary {
 export interface IssuanceStatus {
   readonly issuance: IssuanceRecord;
   readonly accounts: number;
+  /** Distinct transactions archived for this issuance's accounts. */
+  readonly transactions: number;
+  /** Highest ledger any of this issuance's transactions is in, or null. */
+  readonly latestLedger: number | null;
   readonly backfill: BackfillSummary;
   readonly coverage: { readonly min: number; readonly max: number } | null;
   readonly lastReconciliation: {
@@ -90,13 +94,29 @@ export class AdminApi {
   async getIssuance(id: number): Promise<IssuanceStatus | null> {
     const issuance = await this.#issuances.getById(id);
     if (!issuance) return null;
+    const tx = await this.#transactionStats(id);
     return {
       issuance,
       accounts: await this.#accounts.countForIssuance(id),
+      transactions: tx.count,
+      latestLedger: tx.latestLedger,
       backfill: await this.#backfillSummary(id),
       coverage: await this.#coverage(id),
       lastReconciliation: await this.#lastReconciliation(id),
     };
+  }
+
+  async #transactionStats(id: number): Promise<{ count: number; latestLedger: number | null }> {
+    const { rows } = await this.#db.query<{ c: number | string; hi: number | string | null }>(
+      `SELECT count(DISTINCT t.hash) AS c, max(t.ledger_index) AS hi
+       FROM transactions t
+       JOIN account_transactions at ON at.hash = t.hash
+       JOIN account_issuance ai ON ai.address = at.address
+       WHERE ai.issuance_id = $1`,
+      [id],
+    );
+    const hi = rows[0]?.hi;
+    return { count: Number(rows[0]?.c ?? 0), latestLedger: hi === null || hi === undefined ? null : Number(hi) };
   }
 
   async setEnabled(id: number, enabled: boolean): Promise<boolean> {
