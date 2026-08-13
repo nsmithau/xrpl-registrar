@@ -19,6 +19,7 @@ export * from "./backfill/index.js";
 export * from "./livetail/index.js";
 export * from "./api/index.js";
 export * from "./server/index.js";
+export * from "./reconcile/index.js";
 export { decodeMptIssuer, mptSequence } from "./xrpl/mpt.js";
 export { currencyToString } from "./xrpl/currency.js";
 export { loadConfig, type AppConfig } from "./config/index.js";
