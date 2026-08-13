@@ -99,6 +99,18 @@ describe("BackfillWorker", () => {
     expect(seen[0]).toBe(5_000_000);
   });
 
+  it("omits the ledger lower bound when starting from 0 (Clio rejects ledger_index_min: 0)", async () => {
+    const seen: unknown[] = [];
+    const capturing = fakeReader((req: ClioRequest) => {
+      if (req.command === "account_tx") seen.push(req.ledger_index_min);
+      return { transactions: [], marker: undefined };
+    });
+    const worker = new BackfillWorker({ client: capturing, db, mapEntry: idMap });
+    await worker.enqueue(issuanceId, [ACCT], 0);
+    await worker.runJob((await worker.jobs.claimNext(issuanceId))!);
+    expect(seen[0]).toBeUndefined();
+  });
+
   it("resumes from its checkpoint after a crash with no gaps or duplicates", async () => {
     // Crash while requesting the final page (m2), after two pages committed.
     const worker1 = new BackfillWorker({ client: pageServer({ throwOn: "m2" }), db, mapEntry: idMap });

@@ -1,9 +1,12 @@
+import Big from "big.js";
+
 import type { Database, Queryable } from "../db/database.js";
 
 export interface DeltaRow {
   readonly hash: string;
   readonly address: string;
-  readonly delta: bigint;
+  /** Integer (MPT, bigint) or decimal (IOU, string) — stored as text either way. */
+  readonly delta: bigint | string;
 }
 
 /**
@@ -29,16 +32,27 @@ export class BalanceDeltaRepository {
     });
   }
 
-  /** Summed balance per account for an issuance, derived from the deltas. */
+  /** Summed integer (MPT) balance per account, derived from the deltas. */
   async balanceByAccount(issuanceId: number): Promise<Map<string, bigint>> {
+    const out = new Map<string, bigint>();
+    for (const [address, bal] of await this.#sums(issuanceId)) out.set(address, BigInt(bal));
+    return out;
+  }
+
+  /** Summed decimal (IOU) balance per account, derived from the deltas. */
+  async decimalBalanceByAccount(issuanceId: number): Promise<Map<string, Big>> {
+    const out = new Map<string, Big>();
+    for (const [address, bal] of await this.#sums(issuanceId)) out.set(address, new Big(bal));
+    return out;
+  }
+
+  async #sums(issuanceId: number): Promise<Array<[string, string]>> {
     const { rows } = await this.#db.query<{ address: string; bal: string }>(
       `SELECT address, sum(delta::numeric)::text AS bal
        FROM balance_deltas WHERE issuance_id = $1 GROUP BY address`,
       [issuanceId],
     );
-    const out = new Map<string, bigint>();
-    for (const r of rows) out.set(r.address, BigInt(r.bal));
-    return out;
+    return rows.map((r) => [r.address, r.bal]);
   }
 
   async count(issuanceId: number): Promise<number> {

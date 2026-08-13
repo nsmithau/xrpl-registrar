@@ -43,8 +43,14 @@ export async function* accountTxPages(
       account: query.account,
       forward: true,
       binary: true,
-      ...(query.fromLedger !== undefined ? { ledger_index_min: query.fromLedger } : {}),
-      ...(query.toLedger !== undefined ? { ledger_index_max: query.toLedger } : {}),
+      // Only bound when it is a real ledger; 0/undefined means "from earliest"
+      // (Clio rejects ledger_index_min: 0 as malformed).
+      ...(query.fromLedger !== undefined && query.fromLedger > 0
+        ? { ledger_index_min: query.fromLedger }
+        : {}),
+      ...(query.toLedger !== undefined && query.toLedger > 0
+        ? { ledger_index_max: query.toLedger }
+        : {}),
       ...(query.limit !== undefined ? { limit: query.limit } : {}),
       ...(marker !== undefined && marker !== null ? { marker } : {}),
     };
