@@ -133,7 +133,7 @@ pnpm build             # emit to dist/
 
 ## Roadmap
 
-Not yet built: parallel/cross-worker backfill (throughput for very large issuances), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
+Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic re-discovery so the live tail picks up brand-new holders, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
 
 ## Licence
 

@@ -70,7 +70,7 @@ describe("BackfillWorker", () => {
   it("backfills an account to completion, checkpointing and recording coverage", async () => {
     const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 50);
-    const job = await worker.jobs.claimNext(issuanceId);
+    const job = await worker.jobs.claim(issuanceId);
     const done = await worker.runJob(job!);
 
     expect(done.status).toBe("completed");
@@ -95,7 +95,7 @@ describe("BackfillWorker", () => {
     });
     const worker = new BackfillWorker({ client: capturing, db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 5_000_000);
-    await worker.runJob((await worker.jobs.claimNext(issuanceId))!);
+    await worker.runJob((await worker.jobs.claim(issuanceId))!);
     expect(seen[0]).toBe(5_000_000);
   });
 
@@ -107,7 +107,7 @@ describe("BackfillWorker", () => {
     });
     const worker = new BackfillWorker({ client: capturing, db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 0);
-    await worker.runJob((await worker.jobs.claimNext(issuanceId))!);
+    await worker.runJob((await worker.jobs.claim(issuanceId))!);
     expect(seen[0]).toBeUndefined();
   });
 
@@ -115,7 +115,7 @@ describe("BackfillWorker", () => {
     // Crash while requesting the final page (m2), after two pages committed.
     const worker1 = new BackfillWorker({ client: pageServer({ throwOn: "m2" }), db, mapEntry: idMap });
     await worker1.enqueue(issuanceId, [ACCT], 0);
-    const job = await worker1.jobs.claimNext(issuanceId);
+    const job = await worker1.jobs.claim(issuanceId);
     await expect(worker1.runJob(job!)).rejects.toThrow("simulated crash");
 
     // Two pages persisted; cursor parked at m2; job marked failed.
@@ -135,10 +135,28 @@ describe("BackfillWorker", () => {
     expect(done.txCount).toBe(4);
   });
 
+  it("backfills multiple accounts concurrently, claiming each job exactly once", async () => {
+    const accts = ["rA", "rB", "rC", "rD", "rE", "rF"];
+    for (const a of accts) await db.query("INSERT INTO accounts (address) VALUES ($1) ON CONFLICT DO NOTHING", [a]);
+    const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap, concurrency: 4 });
+    await worker.enqueue(issuanceId, accts, 0);
+
+    const { processed } = await worker.runIssuance(issuanceId);
+
+    expect(processed).toBe(accts.length); // no job claimed twice, none missed
+    const jobs = await worker.jobs.listForIssuance(issuanceId);
+    expect(jobs.every((j) => j.status === "completed")).toBe(true);
+    // The fake serves the same 4 tx to every account: deduped to 4 rows, with
+    // one link per (account) — proving concurrent ingest stays consistent.
+    expect(await txCount(db)).toBe(4);
+    const links = await db.query<{ n: number | string }>("SELECT count(*)::bigint AS n FROM account_transactions");
+    expect(Number(links.rows[0]!.n)).toBe(4 * accts.length);
+  });
+
   it("is idempotent when a completed job is re-run", async () => {
     const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 0);
-    const done = await worker.runJob((await worker.jobs.claimNext(issuanceId))!);
+    const done = await worker.runJob((await worker.jobs.claim(issuanceId))!);
     expect(await txCount(db)).toBe(4);
 
     // Re-running re-pages from the start but ingest is idempotent.

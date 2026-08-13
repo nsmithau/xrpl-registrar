@@ -19,6 +19,9 @@ export interface BackfillWorkerOptions {
   readonly logger?: Logger;
   /** Page size requested from upstream. */
   readonly pageLimit?: number;
+  /** How many accounts to backfill concurrently. All share the one governor,
+   * so this never exceeds the global upstream concurrency cap. Default 4. */
+  readonly concurrency?: number;
   /** Override the entry→row mapping (defaults to decoding raw binary blobs). */
   readonly mapEntry?: (
     entry: BinaryTxEntry,
@@ -44,6 +47,7 @@ export class BackfillWorker {
   readonly #db: Database;
   readonly #logger: Logger;
   readonly #pageLimit: number | undefined;
+  readonly #concurrency: number;
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
   readonly jobs: BackfillJobRepository;
 
@@ -52,6 +56,7 @@ export class BackfillWorker {
     this.#db = options.db;
     this.#logger = options.logger ?? nullLogger;
     this.#pageLimit = options.pageLimit;
+    this.#concurrency = Math.max(1, options.concurrency ?? 4);
     this.#mapEntry = options.mapEntry ?? mapBinaryEntry;
     this.jobs = new BackfillJobRepository(options.db);
   }
@@ -113,15 +118,25 @@ export class BackfillWorker {
     return updated ?? job;
   }
 
-  /** Process every pending/interrupted job for an issuance. */
+  /**
+   * Process every job for an issuance, backfilling up to `concurrency` accounts
+   * at once. First reclaims jobs left `running` by a prior crash, then runs
+   * concurrent claim→run loops that each atomically claim the next pending job.
+   * All loops share the one governed client, so total upstream load stays under
+   * the global concurrency cap regardless of `concurrency`.
+   */
   async runIssuance(issuanceId: number): Promise<{ processed: number }> {
+    await this.jobs.reclaimStale(issuanceId);
     let processed = 0;
-    for (;;) {
-      const job = await this.jobs.claimNext(issuanceId);
-      if (!job) break;
-      await this.runJob(job);
-      processed += 1;
-    }
+    const loop = async (): Promise<void> => {
+      for (;;) {
+        const job = await this.jobs.claim(issuanceId);
+        if (!job) break;
+        await this.runJob(job);
+        processed += 1;
+      }
+    };
+    await Promise.all(Array.from({ length: this.#concurrency }, () => loop()));
     return { processed };
   }
 }

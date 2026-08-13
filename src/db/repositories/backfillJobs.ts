@@ -103,20 +103,39 @@ export class BackfillJobRepository {
     for (const address of addresses) await this.enqueue(issuanceId, address, fromLedger);
   }
 
-  /** The next job needing work (pending or interrupted), or null. */
-  async claimNext(issuanceId?: number): Promise<BackfillJob | null> {
+  /**
+   * Atomically claim the next pending job, transitioning it to `running` in a
+   * single statement so two concurrent workers never grab the same job.
+   * `FOR UPDATE SKIP LOCKED` keeps this correct across connections too.
+   */
+  async claim(issuanceId?: number): Promise<BackfillJob | null> {
     const where = issuanceId === undefined ? "" : "AND issuance_id = $1";
     const params = issuanceId === undefined ? [] : [issuanceId];
     const { rows } = await this.#db.query<JobRow>(
-      `SELECT ${COLUMNS} FROM backfill_job
-       WHERE status IN ('pending', 'running') ${where}
-       ORDER BY id LIMIT 1`,
+      `UPDATE backfill_job SET status = 'running', updated_at = now()
+       WHERE id = (
+         SELECT id FROM backfill_job
+         WHERE status = 'pending' ${where}
+         ORDER BY id LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING ${COLUMNS}`,
       params,
     );
-    if (rows.length === 0) return null;
-    const job = mapRow(rows[0]!);
-    await this.#db.query("UPDATE backfill_job SET status = 'running' WHERE id = $1", [job.id]);
-    return { ...job, status: "running" };
+    return rows.length ? mapRow(rows[0]!) : null;
+  }
+
+  /** Return interrupted (`running`) jobs to `pending` — call once at startup to
+   * reclaim jobs orphaned by a previous crash before claiming concurrently. */
+  async reclaimStale(issuanceId?: number): Promise<number> {
+    const where = issuanceId === undefined ? "" : "AND issuance_id = $1";
+    const params = issuanceId === undefined ? [] : [issuanceId];
+    const { rows } = await this.#db.query<{ id: number | string }>(
+      `UPDATE backfill_job SET status = 'pending', updated_at = now()
+       WHERE status = 'running' ${where} RETURNING id`,
+      params,
+    );
+    return rows.length;
   }
 
   async fail(jobId: number): Promise<void> {

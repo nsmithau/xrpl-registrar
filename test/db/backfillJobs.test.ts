@@ -29,21 +29,28 @@ describe("BackfillJobRepository", () => {
     expect((await jobs.listForIssuance(issuanceId)).length).toBe(1);
   });
 
-  it("claims pending jobs in order and marks them running", async () => {
+  it("atomically claims each pending job once, in order", async () => {
     await jobs.enqueueMany(issuanceId, ["rA", "rB"], 0);
-    const a = await jobs.claimNext(issuanceId);
+    const a = await jobs.claim(issuanceId);
     expect(a?.address).toBe("rA");
     expect(a?.status).toBe("running");
-    // Already-running rA is still claimable (interrupted-job semantics), and is
-    // the lowest id, so it comes back before rB.
-    const next = await jobs.claimNext(issuanceId);
-    expect(next?.address).toBe("rA");
+    // rA is now running, so the next claim advances to rB — never the same job.
+    const b = await jobs.claim(issuanceId);
+    expect(b?.address).toBe("rB");
+    expect(await jobs.claim(issuanceId)).toBeNull();
   });
 
-  it("does not reselect failed jobs", async () => {
+  it("does not claim running or failed jobs, and reclaims stale running ones", async () => {
     await jobs.enqueue(issuanceId, "rA", 0);
-    const job = await jobs.claimNext(issuanceId);
+    const job = await jobs.claim(issuanceId); // rA -> running
+    expect(await jobs.claim(issuanceId)).toBeNull(); // running is not claimable
+
+    // Reclaim (as at startup) returns it to pending and claimable again.
+    expect(await jobs.reclaimStale(issuanceId)).toBe(1);
+    expect((await jobs.claim(issuanceId))?.address).toBe("rA");
+
     await jobs.fail(job!.id);
-    expect(await jobs.claimNext(issuanceId)).toBeNull();
+    expect(await jobs.claim(issuanceId)).toBeNull(); // failed is not claimable
+    expect(await jobs.reclaimStale(issuanceId)).toBe(0); // and not reclaimed
   });
 });
