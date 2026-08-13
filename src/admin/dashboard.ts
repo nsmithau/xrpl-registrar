@@ -1,11 +1,16 @@
 /**
  * The read-only operator dashboard, embedded as a single self-contained HTML
- * document (no build step, no external assets). Served on the admin port.
+ * document (no build step, no external assets, no network dependency). Served
+ * on the admin port.
  *
  * The shell carries no data; it prompts for the admin bearer token and reads
  * the same authenticated `/admin/issuances` endpoints the API exposes, so the
  * dashboard can never drift from the API and account data stays behind auth.
  * Read-only in v1: it shows progress and coverage, and mutates nothing.
+ *
+ * The colour palette and typography are defined inline (design tokens as CSS
+ * custom properties) with a system light/dark theme, so nothing outside this
+ * file is required to render it.
  */
 export const DASHBOARD_HTML = `<!doctype html>
 <html lang="en">
@@ -14,42 +19,108 @@ export const DASHBOARD_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>xrpl-ingestor · operator dashboard</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; }
-  header { padding: 16px 24px; border-bottom: 1px solid #8883; display: flex; align-items: baseline; gap: 12px; }
-  header h1 { font-size: 18px; margin: 0; }
-  header .sub { color: #888; font-size: 13px; }
-  main { padding: 24px; }
-  #auth { padding: 24px; display: flex; gap: 8px; align-items: center; }
-  input { padding: 6px 8px; border: 1px solid #8886; border-radius: 6px; font: inherit; min-width: 280px; background: transparent; color: inherit; }
-  button { padding: 6px 14px; border: 1px solid #8886; border-radius: 6px; background: #4472ff; color: #fff; cursor: pointer; font: inherit; }
+  :root {
+    --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --radius: 0.5rem;
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --primary: 206 98% 35%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 210 25% 94%;
+    --muted-foreground: 215 16% 40%;
+    --success: 160 84% 30%;
+    --destructive: 0 72% 51%;
+    --border: 214 28% 86%;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --background: 222 35% 7%;
+      --foreground: 210 30% 96%;
+      --card: 222 30% 10%;
+      --primary: 206 98% 48%;
+      --muted: 217 28% 16%;
+      --muted-foreground: 215 16% 62%;
+      --success: 160 64% 42%;
+      --destructive: 0 72% 55%;
+      --border: 217 25% 20%;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: var(--font-sans);
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 24px; border-bottom: 1px solid hsl(var(--border));
+  }
+  header .logo { height: 22px; width: auto; color: hsl(var(--primary)); }
+  header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  header .sub { color: hsl(var(--muted-foreground)); font-size: 13px; }
+  #auth { display: flex; gap: 8px; align-items: center; padding: 24px; }
+  input {
+    padding: 8px 10px; min-width: 300px; font: inherit; color: inherit;
+    background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+  }
+  input:focus { outline: 2px solid hsl(var(--primary) / 0.5); outline-offset: 1px; }
+  button {
+    padding: 8px 16px; font: inherit; font-weight: 500; cursor: pointer;
+    color: hsl(var(--primary-foreground)); background: hsl(var(--primary));
+    border: none; border-radius: var(--radius);
+  }
+  button:hover { filter: brightness(1.05); }
+  main { padding: 0 24px 24px; }
+  .card {
+    background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+    border-radius: var(--radius); overflow: hidden;
+  }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #8882; white-space: nowrap; }
-  th { color: #888; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-  td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .ok { color: #17924a; } .bad { color: #cc3344; } .muted { color: #888; }
-  .bar { display: inline-block; height: 8px; border-radius: 4px; background: #8883; width: 90px; vertical-align: middle; overflow: hidden; }
-  .bar > span { display: block; height: 100%; background: #4472ff; }
-  #meta { color: #888; margin-top: 16px; font-size: 12px; }
-  #err { color: #cc3344; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid hsl(var(--border)); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  th { color: hsl(var(--muted-foreground)); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td.mono, .mono { font-family: var(--font-mono); font-size: 13px; }
+  .ok { color: hsl(var(--success)); font-weight: 500; }
+  .bad { color: hsl(var(--destructive)); font-weight: 500; }
+  .muted { color: hsl(var(--muted-foreground)); }
+  .bar { display: inline-block; height: 6px; border-radius: 3px; background: hsl(var(--muted)); width: 84px; vertical-align: middle; overflow: hidden; margin-right: 8px; }
+  .bar > span { display: block; height: 100%; background: hsl(var(--primary)); border-radius: 3px; }
+  #summary { color: hsl(var(--muted-foreground)); font-size: 13px; margin: 4px 0 12px; }
+  #meta { color: hsl(var(--muted-foreground)); margin-top: 14px; font-size: 12px; }
+  #err { color: hsl(var(--destructive)); font-size: 13px; }
 </style>
 </head>
 <body>
-<header><h1>xrpl-ingestor</h1><span class="sub">operator dashboard · read-only</span></header>
+<header>
+  <svg class="logo" viewBox="0 0 298 225" xmlns="http://www.w3.org/2000/svg" aria-label="XRPL">
+    <path fill="currentColor" d="M68.5456 13.9416H73.9673V0.000139238H68.5456C62.7975 -0.00495441 57.1047 1.12348 51.7931 3.32086C46.4815 5.51824 41.6553 8.74144 37.5907 12.806C33.5262 16.8706 30.303 21.6968 28.1056 27.0084C25.9082 32.32 24.7798 38.0127 24.7849 43.7609V75.5165C24.7965 82.2404 22.2357 88.7141 17.6273 93.6105C13.019 98.5068 6.71227 101.455 0 101.85L0.387264 108.821L0 115.792C6.71227 116.187 13.019 119.136 17.6273 124.032C22.2357 128.928 24.7965 135.402 24.7849 142.126V178.722C24.7643 190.866 29.566 202.521 38.1348 211.126C46.7035 219.731 58.3382 224.582 70.482 224.613V210.671C62.0614 210.666 53.9872 207.319 48.033 201.365C42.0788 195.411 38.7315 187.336 38.7264 178.916V142.126C38.7322 135.558 37.1293 129.088 34.0577 123.282C30.986 117.477 26.5392 112.512 21.1059 108.821C26.5237 105.115 30.9588 100.147 34.0285 94.3446C37.0983 88.5425 38.7106 82.0807 38.7264 75.5165V43.7609C38.762 35.8633 41.9151 28.2994 47.4996 22.7149C53.0841 17.1304 60.6481 13.9773 68.5456 13.9416Z"/>
+    <path fill="currentColor" d="M229.648 13.9414H224.227V-6.10352e-05H229.648C241.227 0.0307156 252.32 4.65727 260.489 12.8629C268.659 21.0685 273.236 32.1819 273.215 43.7607V75.5163C273.204 82.2402 275.765 88.7139 280.373 93.6103C284.981 98.5066 291.288 101.455 298 101.85L297.613 108.821L298 115.792C291.288 116.187 284.981 119.135 280.373 124.032C275.765 128.928 273.204 135.402 273.215 142.126V178.722C273.236 190.866 268.434 202.521 259.865 211.126C251.297 219.731 239.662 224.582 227.518 224.613V210.671C235.939 210.666 244.013 207.319 249.967 201.365C255.921 195.41 259.269 187.336 259.274 178.916V142.126C259.268 135.557 260.871 129.088 263.943 123.282C267.014 117.476 271.461 112.511 276.894 108.821C271.477 105.115 267.041 100.147 263.972 94.3444C260.902 88.5423 259.29 82.0805 259.274 75.5163V43.7607C259.294 39.8554 258.543 35.9844 257.064 32.37C255.585 28.7556 253.407 25.4688 250.654 22.6983C247.902 19.9278 244.629 17.7281 241.024 16.2254C237.42 14.7226 233.554 13.9465 229.648 13.9414Z"/>
+    <path fill="currentColor" d="M199.828 56.1533H220.547L177.367 96.6224C169.62 103.632 159.544 107.514 149.097 107.514C138.649 107.514 128.573 103.632 120.826 96.6224L77.6465 56.1533H98.3651L131.089 86.7471C135.976 91.232 142.367 93.7204 149 93.7204C155.633 93.7204 162.024 91.232 166.911 86.7471L199.828 56.1533Z"/>
+    <path fill="currentColor" d="M98.1717 168.459H77.4531L120.827 127.796C128.531 120.7 138.622 116.761 149.097 116.761C159.571 116.761 169.663 120.7 177.367 127.796L220.741 168.459H200.022L167.105 137.478C162.218 132.993 155.826 130.505 149.194 130.505C142.561 130.505 136.169 132.993 131.283 137.478L98.1717 168.459Z"/>
+  </svg>
+  <h1>xrpl-ingestor</h1>
+  <span class="sub">operator dashboard · read-only</span>
+</header>
 <div id="auth">
   <input id="token" type="password" placeholder="Admin bearer token" autocomplete="off" />
   <button id="connect">Connect</button>
   <span id="err"></span>
 </div>
 <main id="app" hidden>
-  <div id="summary" class="muted"></div>
-  <table>
-    <thead><tr>
-      <th>ID</th><th>Kind</th><th>Identifier</th><th>Strategy</th><th>Enabled</th>
-      <th>Accounts</th><th>Backfill</th><th>Coverage</th><th>Reconciliation</th>
-    </tr></thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div id="summary"></div>
+  <div class="card">
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Kind</th><th>Identifier</th><th>Strategy</th><th>Enabled</th>
+        <th>Accounts</th><th>Backfill</th><th>Coverage</th><th>Reconciliation</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
   <div id="meta"></div>
 </main>
 <script>
@@ -72,9 +143,9 @@ export const DASHBOARD_HTML = `<!doctype html>
     cell(tr, s.accounts);
     var bfTd = document.createElement("td");
     var pct = total ? Math.round((bf.completed / total) * 100) : 0;
-    bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span> ';
+    bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span>';
     var t = document.createElement("span");
-    t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" · " + bf.failed + " failed") : "");
+    t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
     bfTd.appendChild(t); tr.appendChild(bfTd);
     cell(tr, s.coverage ? (s.coverage.min + "\\u2013" + s.coverage.max) : "\\u2014", "mono");
     if (!s.lastReconciliation) cell(tr, "\\u2014", "muted");
