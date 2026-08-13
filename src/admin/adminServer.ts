@@ -94,7 +94,10 @@ export class AdminServer {
       const id = parts[2] !== undefined ? Number(parts[2]) : undefined;
 
       if (req.method === "GET" && id === undefined) {
-        return send(res, 200, { issuances: await this.#api.listIssuances() });
+        return send(res, 200, {
+          issuances: await this.#api.listIssuances(),
+          latestLedger: await this.#api.latestLedgerSeen(),
+        });
       }
       if (req.method === "GET" && id !== undefined) {
         const status = await this.#api.getIssuance(id);

@@ -4,6 +4,7 @@ import { AdminApi } from "../../src/admin/adminApi.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
+import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
 
 describe("AdminApi", () => {
   let db: Database;
@@ -47,6 +48,15 @@ describe("AdminApi", () => {
     expect(status.backfill).toMatchObject({ completed: 1, running: 1, totalTx: 7 });
     expect(status.coverage).toEqual({ min: 100, max: 200 });
     expect(status.lastReconciliation).toMatchObject({ passed: true, discrepancies: 0 });
+  });
+
+  it("reports the latest ledger the archive has observed", async () => {
+    expect(await api.latestLedgerSeen()).toBeNull();
+    await new LedgerTimeRepository(db).recordMany([
+      { ledgerIndex: 100, closeTimeIso: "2026-01-01T00:00:00Z" },
+      { ledgerIndex: 250, closeTimeIso: "2026-02-01T00:00:00Z" },
+    ]);
+    expect(await api.latestLedgerSeen()).toBe(250);
   });
 
   it("enables/disables and returns null for unknown issuances", async () => {

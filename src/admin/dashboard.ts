@@ -8,16 +8,19 @@
  * dashboard can never drift from the API and account data stays behind auth.
  * Read-only in v1: it shows progress and coverage, and mutates nothing.
  *
- * The colour palette and typography are defined inline (design tokens as CSS
- * custom properties) with a system light/dark theme, so nothing outside this
- * file is required to render it.
+ * The colour palette is defined inline (design tokens as CSS custom
+ * properties) with a system light/dark theme; the IBM Plex fonts load from
+ * Google Fonts (the one external dependency), with system fallbacks.
  */
 export const DASHBOARD_HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>xrpl-ingestor · operator dashboard</title>
+<title>XRPL Ingestor · operator dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
     --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -91,12 +94,18 @@ export const DASHBOARD_HTML = `<!doctype html>
   th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid hsl(var(--border)); white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
   th { color: hsl(var(--muted-foreground)); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-  td.mono, .mono { font-family: var(--font-mono); font-size: 13px; }
+  /* The issuance data is all monospaced. */
+  td { font-family: var(--font-mono); font-size: 13px; }
   .ok { color: hsl(var(--success)); font-weight: 500; }
   .bad { color: hsl(var(--destructive)); font-weight: 500; }
   .muted { color: hsl(var(--muted-foreground)); }
   .bar { display: inline-block; height: 6px; border-radius: 3px; background: hsl(var(--muted)); width: 84px; vertical-align: middle; overflow: hidden; margin-right: 8px; }
   .bar > span { display: block; height: 100%; background: hsl(var(--primary)); border-radius: 3px; }
+  .counter { margin-left: auto; display: none; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+  .counter.live { display: inline-flex; }
+  .counter .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--success)); animation: pulse 2s infinite; }
+  .counter .num { font-family: var(--font-mono); color: hsl(var(--foreground)); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
   #summary { color: hsl(var(--muted-foreground)); font-size: 13px; margin: 4px 0 12px; }
   #meta { color: hsl(var(--muted-foreground)); margin-top: 14px; font-size: 12px; }
   #err { color: hsl(var(--destructive)); font-size: 13px; }
@@ -110,13 +119,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     <path fill="currentColor" d="M199.828 56.1533H220.547L177.367 96.6224C169.62 103.632 159.544 107.514 149.097 107.514C138.649 107.514 128.573 103.632 120.826 96.6224L77.6465 56.1533H98.3651L131.089 86.7471C135.976 91.232 142.367 93.7204 149 93.7204C155.633 93.7204 162.024 91.232 166.911 86.7471L199.828 56.1533Z"/>
     <path fill="currentColor" d="M98.1717 168.459H77.4531L120.827 127.796C128.531 120.7 138.622 116.761 149.097 116.761C159.571 116.761 169.663 120.7 177.367 127.796L220.741 168.459H200.022L167.105 137.478C162.218 132.993 155.826 130.505 149.194 130.505C142.561 130.505 136.169 132.993 131.283 137.478L98.1717 168.459Z"/>
   </svg>
-  <h1>xrpl-ingestor</h1>
+  <h1>XRPL Ingestor</h1>
   <span class="sub">operator dashboard · read-only</span>
 </header>
 <div id="auth">
   <input id="token" type="password" placeholder="Admin bearer token" autocomplete="off" />
   <button id="connect">Connect</button>
   <span id="err"></span>
+  <span id="ledger" class="counter"></span>
 </div>
 <main id="app" hidden>
   <div id="summary"></div>
@@ -207,6 +217,13 @@ export const DASHBOARD_HTML = `<!doctype html>
       var rows = el("rows"); rows.textContent = "";
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
+      var led = el("ledger");
+      if (typeof data.latestLedger === "number") {
+        led.innerHTML = '<span class="dot"></span><span>subscribed at ledger</span> <span class="num">' + data.latestLedger.toLocaleString() + "</span>";
+        led.classList.add("live");
+      } else {
+        led.classList.remove("live");
+      }
       el("meta").textContent = "updated " + new Date().toLocaleTimeString();
       el("err").textContent = "";
     } catch (e) { el("err").textContent = String(e); }

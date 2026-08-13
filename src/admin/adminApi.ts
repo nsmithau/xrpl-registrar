@@ -91,6 +91,16 @@ export class AdminApi {
     return this.#issuances.list();
   }
 
+  /** The latest ledger the archive has observed (max recorded close time) —
+   * i.e. where the live subscription currently is. Null before any is seen. */
+  async latestLedgerSeen(): Promise<number | null> {
+    const { rows } = await this.#db.query<{ m: number | string | null }>(
+      "SELECT max(ledger_index) AS m FROM ledgers",
+    );
+    const m = rows[0]?.m;
+    return m === null || m === undefined ? null : Number(m);
+  }
+
   async getIssuance(id: number): Promise<IssuanceStatus | null> {
     const issuance = await this.#issuances.getById(id);
     if (!issuance) return null;
