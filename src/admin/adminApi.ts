@@ -6,6 +6,8 @@ import {
   type IssuanceRecord,
 } from "../db/repositories/issuances.js";
 
+import type { ActivityReport, ActivitySource } from "./activity.js";
+
 export interface RegisterMptIssuance {
   readonly kind: "mpt";
   readonly mptIssuanceId: string;
@@ -58,11 +60,19 @@ export class AdminApi {
   readonly #db: Database;
   readonly #issuances: IssuanceRepository;
   readonly #accounts: AccountRepository;
+  readonly #activity: ActivitySource | undefined;
 
-  constructor(db: Database) {
+  constructor(db: Database, activity?: ActivitySource) {
     this.#db = db;
     this.#issuances = new IssuanceRepository(db);
     this.#accounts = new AccountRepository(db);
+    this.#activity = activity;
+  }
+
+  /** Snapshot of background activity (backfill/discovery) for the dashboard, or
+   * null when no registry is wired in. Reflects this process only. */
+  activitySnapshot(): ActivityReport | null {
+    return this.#activity?.snapshot() ?? null;
   }
 
   async registerIssuance(input: RegisterIssuance): Promise<IssuanceRecord> {

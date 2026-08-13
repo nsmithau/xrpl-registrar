@@ -11,6 +11,7 @@
  * Optional: MPT_ISSUANCE_ID=<hex>, PORT=<port>, DATABASE_DIR=<dir> (persist).
  */
 import {
+  ActivityRegistry,
   AdminApi,
   AdminServer,
   ArchiveApi,
@@ -32,8 +33,12 @@ import {
 
 const MPT = (process.env.MPT_ISSUANCE_ID ?? "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1").toUpperCase();
 const PORT = Number(process.env.PORT ?? 51234);
+// How often to re-scan tracked issuances for new holders (0 disables).
+const REDISCOVERY_INTERVAL_MS = Number(process.env.REDISCOVERY_INTERVAL_MS ?? 15 * 60 * 1000);
 
 const config = loadConfig();
+// Tracks in-flight backfill/discovery so the dashboard can show live indicators.
+const activity = new ActivityRegistry();
 const { client } = createClioClient(config);
 const db = await openArchiveDatabase(config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {});
 await client.connect();
@@ -42,13 +47,17 @@ await client.connect();
 const existing = await db.query("SELECT id FROM issuances WHERE mpt_issuance_id = $1", [MPT]);
 if (existing.rows.length === 0) {
   console.log(`Populating archive for MPT ${MPT}…`);
-  const res = await discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" });
+  const res = await activity.track("discovery", `discovering ${MPT}`, () =>
+    discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }),
+  );
   const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
   await new AccountRepository(db).recordDiscovered(issuance.id, res.accounts);
   const from = Math.min(...res.accounts.map((a) => a.firstAcquisitionLedger ?? 0).filter(Boolean));
   const worker = new BackfillWorker({ client, db });
   await worker.enqueue(issuance.id, res.accounts.map((a) => a.address), from);
-  const { processed } = await worker.runIssuance(issuance.id);
+  const { processed } = await activity.track("backfill", `backfilling ${MPT}`, () =>
+    worker.runIssuance(issuance.id),
+  );
   console.log(`Discovered ${res.accounts.length} account(s), backfilled ${processed} job(s).`);
 } else {
   console.log(`MPT ${MPT} already in archive; serving existing data.`);
@@ -80,11 +89,42 @@ if (scope.length > 0) {
     logger: consoleLogger,
     ...(highWater !== undefined ? { startLedger: highWater } : {}),
     onGap: async (range) => {
-      await backfillGap(client, db, scope, range);
+      // Heal against the current in-scope set (re-discovery may have grown it).
+      const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+      await activity.track(
+        "backfill",
+        `healing ${range.fromLedger}–${range.toLedger}`,
+        () => backfillGap(client, db, rows.rows.map((r) => r.address), range, consoleLogger),
+      );
     },
   });
   void tail.run();
   console.log(`Live tail    : ${scope.length} account(s), healing from ledger ${highWater ?? "(none)"}`);
+}
+
+// Periodic re-discovery: re-scan every tracked issuance for holders that have
+// appeared since the last scan, backfill any new accounts, and extend the live
+// subscription to cover them — so a long-running server picks up new holders
+// without a restart. Reuses the registration pipeline (idempotent throughout).
+let rediscoverTimer: NodeJS.Timeout | undefined;
+async function rediscover(): Promise<void> {
+  const issuances = await new IssuanceRepository(db).list();
+  for (const issuance of issuances) {
+    if (!issuance.enabled) continue;
+    await ingestIssuance(client, db, issuance, consoleLogger, activity);
+  }
+  if (tailSource) {
+    const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+    await tailSource.setAccounts(rows.rows.map((r) => r.address));
+  }
+}
+if (REDISCOVERY_INTERVAL_MS > 0) {
+  rediscoverTimer = setInterval(() => {
+    void rediscover().catch((err: unknown) =>
+      consoleLogger.error("periodic re-discovery failed", { error: String(err) }),
+    );
+  }, REDISCOVERY_INTERVAL_MS);
+  console.log(`Re-discovery : every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (set REDISCOVERY_INTERVAL_MS=0 to disable)`);
 }
 
 console.log(`\nArchive serving (Clio-compatible):`);
@@ -100,15 +140,20 @@ console.log(
 let adminServer: AdminServer | undefined;
 if (config.admin.token) {
   adminServer = new AdminServer({
-    api: new AdminApi(db),
+    api: new AdminApi(db, activity),
     token: config.admin.token,
     port: config.admin.port,
     host: "127.0.0.1",
     logger: consoleLogger,
     onRegistered: (issuance) => {
-      ingestIssuance(client, db, issuance, consoleLogger).catch((err: unknown) =>
-        consoleLogger.error("background ingest failed", { error: String(err) }),
-      );
+      ingestIssuance(client, db, issuance, consoleLogger, activity)
+        .then(async () => {
+          // Bring the newly-registered issuance's accounts into the live tail.
+          if (!tailSource) return;
+          const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+          await tailSource.setAccounts(rows.rows.map((r) => r.address));
+        })
+        .catch((err: unknown) => consoleLogger.error("background ingest failed", { error: String(err) }));
     },
   });
   const adminBound = await adminServer.start();
@@ -122,6 +167,7 @@ console.log(`\nPress Ctrl-C to stop.`);
 
 process.on("SIGINT", () => {
   void (async () => {
+    if (rediscoverTimer) clearInterval(rediscoverTimer);
     tail?.stop();
     if (tailSource) await tailSource.close();
     await server.stop();

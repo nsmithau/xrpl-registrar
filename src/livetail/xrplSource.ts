@@ -67,8 +67,8 @@ export interface XrplTailSourceOptions {
 export class XrplTailSource implements TailSource {
   readonly #client: Client;
   readonly #reader: ClioReader;
-  readonly #accounts: string[];
-  readonly #scope: Set<string>;
+  #accounts: string[];
+  #scope: Set<string>;
   readonly #queue = new EventQueue<TailEvent>();
   readonly #logger: Logger;
   #started = false;
@@ -120,6 +120,19 @@ export class XrplTailSource implements TailSource {
     );
 
     await this.#client.connect();
+  }
+
+  /**
+   * Extend (or replace) the tracked account set and re-subscribe. Used by
+   * periodic re-discovery when new holders appear: their backfilled history is
+   * already stored, and this brings their *future* transactions into the live
+   * tail without a restart. Subscribing accounts already tracked is a harmless
+   * no-op upstream, so passing the full current set each time is fine.
+   */
+  async setAccounts(accounts: readonly string[]): Promise<void> {
+    this.#accounts = [...accounts];
+    this.#scope = new Set(accounts);
+    if (this.#started && this.#client.isConnected()) await this.#subscribe();
   }
 
   async #subscribe(): Promise<void> {

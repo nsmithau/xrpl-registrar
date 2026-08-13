@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { ActivityRegistry } from "../../src/admin/activity.js";
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { AdminServer } from "../../src/admin/adminServer.js";
 import type { IssuanceRecord } from "../../src/db/repositories/issuances.js";
@@ -11,14 +12,16 @@ describe("AdminServer", () => {
   let db: Database;
   let server: AdminServer;
   let base: string;
+  let activity: ActivityRegistry;
   const registered: IssuanceRecord[] = [];
 
   const auth = (extra: Record<string, string> = {}) => ({ authorization: `Bearer ${TOKEN}`, ...extra });
 
   beforeAll(async () => {
     db = await openArchiveDatabase();
+    activity = new ActivityRegistry();
     server = new AdminServer({
-      api: new AdminApi(db),
+      api: new AdminApi(db, activity),
       token: TOKEN,
       port: 0,
       onRegistered: (i) => registered.push(i),
@@ -77,6 +80,22 @@ describe("AdminServer", () => {
       issuance: IssuanceRecord;
     };
     expect(after.issuance.enabled).toBe(false);
+  });
+
+  it("reports background activity in the list response for the dashboard", async () => {
+    activity.begin("backfill", "backfilling rX");
+    const running = (await (await fetch(`${base}/admin/issuances`, { headers: auth() })).json()) as {
+      activity: { backfill: { running: boolean; detail: string | null }; discovery: { running: boolean } };
+    };
+    expect(running.activity.backfill.running).toBe(true);
+    expect(running.activity.backfill.detail).toBe("backfilling rX");
+    expect(running.activity.discovery.running).toBe(false);
+
+    activity.end("backfill");
+    const idle = (await (await fetch(`${base}/admin/issuances`, { headers: auth() })).json()) as {
+      activity: { backfill: { running: boolean } };
+    };
+    expect(idle.activity.backfill.running).toBe(false);
   });
 
   it("404s unknown ids and paths", async () => {

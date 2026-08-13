@@ -97,6 +97,7 @@ export class AdminServer {
         return send(res, 200, {
           issuances: await this.#api.listIssuances(),
           latestLedger: await this.#api.latestLedgerSeen(),
+          activity: this.#api.activitySnapshot(),
         });
       }
       if (req.method === "GET" && id !== undefined) {

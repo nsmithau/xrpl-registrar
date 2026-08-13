@@ -3,6 +3,7 @@ import { accountTxPages } from "../backfill/pages.js";
 import type { Database } from "../db/database.js";
 import { insertTransactionRows } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
+import { nullLogger, type Logger } from "../logging/logger.js";
 
 import type { LedgerRange } from "./types.js";
 
@@ -11,15 +12,28 @@ import type { LedgerRange } from "./types.js";
  * accounts and ingesting it. Reuses the backfill pager and idempotent ingest,
  * so re-filling an overlapping range never duplicates. Returns the number of
  * transactions ingested (including no-op re-inserts).
+ *
+ * A gap heal can take a while (one paged `account_tx` sweep per account), during
+ * which the live tail is blocked, so it logs when it starts, as each account
+ * finishes, and on completion — otherwise a large heal looks like a stall.
  */
 export async function backfillGap(
   client: ClioReader,
   db: Database,
   accounts: readonly string[],
   range: LedgerRange,
+  logger: Logger = nullLogger,
 ): Promise<number> {
+  const startedMs = Date.now();
+  logger.info("gap heal started", {
+    fromLedger: range.fromLedger,
+    toLedger: range.toLedger,
+    accounts: accounts.length,
+  });
   let count = 0;
+  let done = 0;
   for (const account of accounts) {
+    let acctCount = 0;
     for await (const page of accountTxPages(client, {
       account,
       fromLedger: range.fromLedger,
@@ -30,9 +44,18 @@ export async function backfillGap(
         for (const entry of page.entries) {
           await insertTransactionRows(t, mapBinaryEntry(entry, account, page.provenance));
           count += 1;
+          acctCount += 1;
         }
       });
     }
+    done += 1;
+    logger.info("gap heal progress", { account, ingested: acctCount, accounts: `${done}/${accounts.length}` });
   }
+  logger.info("gap heal finished", {
+    fromLedger: range.fromLedger,
+    toLedger: range.toLedger,
+    ingested: count,
+    elapsedMs: Date.now() - startedMs,
+  });
   return count;
 }

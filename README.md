@@ -116,6 +116,7 @@ All configuration is read from the environment. Copy [`.env.example`](.env.examp
 | `ADMIN_TOKEN` | no | — | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly. |
 | `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
 | `PORT` | no | `51234` | Port for the public read API (used by `pnpm serve`). |
+| `REDISCOVERY_INTERVAL_MS` | no | `900000` | How often `pnpm serve` re-scans tracked issuances for new holders and extends the live tail to cover them. `0` disables. |
 | `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
 | `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
 | `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
@@ -133,7 +134,7 @@ pnpm build             # emit to dist/
 
 ## Roadmap
 
-Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic re-discovery so the live tail picks up brand-new holders, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
+Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. `pnpm serve` also re-scans tracked issuances on a timer (`REDISCOVERY_INTERVAL_MS`), backfilling any newly-found holders and extending the live tail to cover them, and the operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
 
 ## Licence
 

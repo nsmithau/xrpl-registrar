@@ -65,7 +65,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   header .logo { height: 22px; width: auto; color: hsl(var(--primary)); }
   header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
   header .sub { color: hsl(var(--muted-foreground)); font-size: 13px; }
-  #auth { display: flex; gap: 8px; align-items: center; padding: 24px; }
+  #auth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 24px; }
   input {
     padding: 8px 10px; min-width: 300px; font: inherit; color: inherit;
     background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: var(--radius);
@@ -101,10 +101,18 @@ export const DASHBOARD_HTML = `<!doctype html>
   .muted { color: hsl(var(--muted-foreground)); }
   .bar { display: inline-block; height: 6px; border-radius: 3px; background: hsl(var(--muted)); width: 84px; vertical-align: middle; overflow: hidden; margin-right: 8px; }
   .bar > span { display: block; height: 100%; background: hsl(var(--primary)); border-radius: 3px; }
-  .counter { margin-left: auto; display: none; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+  /* Right-aligned status group: activity indicators + the live ledger counter. */
+  #status { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .counter { display: none; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); }
   .counter.live { display: inline-flex; }
   .counter .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--success)); animation: pulse 2s infinite; }
   .counter .num { font-family: var(--font-mono); color: hsl(var(--foreground)); }
+  /* Activity pills: dim + steady when idle, primary + pulsing when running. */
+  .pill { display: none; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); }
+  .pill.show { display: inline-flex; }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--muted-foreground)); }
+  .pill.active { color: hsl(var(--foreground)); }
+  .pill.active .dot { background: hsl(var(--primary)); animation: pulse 2s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
   #summary { color: hsl(var(--muted-foreground)); font-size: 13px; margin: 4px 0 12px; }
   #meta { color: hsl(var(--muted-foreground)); margin-top: 14px; font-size: 12px; }
@@ -126,7 +134,11 @@ export const DASHBOARD_HTML = `<!doctype html>
   <input id="token" type="password" placeholder="Admin bearer token" autocomplete="off" />
   <button id="connect">Connect</button>
   <span id="err"></span>
-  <span id="ledger" class="counter"></span>
+  <span id="status">
+    <span id="act-backfill" class="pill"></span>
+    <span id="act-discovery" class="pill"></span>
+    <span id="ledger" class="counter"></span>
+  </span>
 </div>
 <main id="app" hidden>
   <div id="summary"></div>
@@ -217,6 +229,9 @@ export const DASHBOARD_HTML = `<!doctype html>
       var rows = el("rows"); rows.textContent = "";
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
+      var act = data.activity || {};
+      renderPill("act-backfill", act.backfill, "backfilling\\u2026", "backfill idle");
+      renderPill("act-discovery", act.discovery, "discovering\\u2026", "discovery idle");
       var led = el("ledger");
       if (typeof data.latestLedger === "number") {
         led.innerHTML = '<span class="dot"></span><span>subscribed at ledger</span> <span class="num">' + data.latestLedger.toLocaleString() + "</span>";
@@ -227,6 +242,20 @@ export const DASHBOARD_HTML = `<!doctype html>
       el("meta").textContent = "updated " + new Date().toLocaleTimeString();
       el("err").textContent = "";
     } catch (e) { el("err").textContent = String(e); }
+  }
+
+  // An activity indicator: a labelled dot that pulses (primary) while the work
+  // is running and sits dim + steady when idle. The detail / last-run time goes
+  // in the tooltip to keep the inline label short.
+  function renderPill(id, snap, activeLabel, idleLabel) {
+    var p = el(id);
+    if (!snap) { p.className = "pill"; p.textContent = ""; p.title = ""; return; }
+    var active = !!snap.running;
+    p.className = "pill show" + (active ? " active" : "");
+    p.innerHTML = '<span class="dot"></span><span>' + (active ? activeLabel : idleLabel) + "</span>";
+    if (active) p.title = snap.detail || activeLabel;
+    else if (snap.lastFinishedAt) p.title = "last finished " + new Date(snap.lastFinishedAt).toLocaleString();
+    else p.title = "not run yet";
   }
 
   function connect() {

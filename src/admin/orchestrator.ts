@@ -8,6 +8,8 @@ import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 import { deriveIouDeltas, deriveMptDeltas } from "../reconcile/index.js";
 
+import { noopActivityTracker, type ActivityTracker } from "./activity.js";
+
 export interface IngestSummary {
   readonly strategy: string;
   readonly discovered: number;
@@ -50,8 +52,12 @@ export async function ingestIssuance(
   db: Database,
   issuance: IssuanceRecord,
   logger: Logger = nullLogger,
+  activity: ActivityTracker = noopActivityTracker,
 ): Promise<IngestSummary> {
-  const result = await discover(client, targetFor(issuance));
+  const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
+  const result = await activity.track("discovery", `discovering ${label ?? issuance.id}`, () =>
+    discover(client, targetFor(issuance)),
+  );
   await new AccountRepository(db).recordDiscovered(issuance.id, result.accounts);
 
   const acquisitionLedgers = result.accounts
@@ -70,7 +76,9 @@ export async function ingestIssuance(
     result.accounts.map((a) => a.address),
     fromLedger,
   );
-  const { processed } = await worker.runIssuance(issuance.id);
+  const { processed } = await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
+    worker.runIssuance(issuance.id),
+  );
 
   // Capture close times for the ledgers we ingested, enabling time-based
   // reporting later.
