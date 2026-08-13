@@ -6,6 +6,7 @@ import { DisabledForwarder, type Forwarder } from "./forwarder.js";
 import { handleAccountInfo, handleAccountLines } from "./methods/accountState.js";
 import { handleAccountTx } from "./methods/accountTx.js";
 import { handleMptHolders } from "./methods/mptHolders.js";
+import { handleBalanceAt, handleDeltas } from "./methods/reporting.js";
 import { handleTx } from "./methods/tx.js";
 import { ScopeRepository } from "./scope.js";
 import type { ApiRequest, ApiResponse, MethodResult } from "./types.js";
@@ -16,6 +17,8 @@ const NODE_STATE = new Set(["server_info", "ledger", "fee"]);
 const SUBMISSION = new Set(["submit", "submit_multisigned"]);
 const ARCHIVE_SCOPED = new Set(["account_tx", "tx", "account_info", "account_lines", "mpt_holders"]);
 const ACCOUNT_SCOPED = new Set(["account_tx", "account_info", "account_lines"]);
+// Reporting extensions — archive-only computations, never forwarded.
+const REPORTING = new Set(["archive_balance_at", "archive_deltas"]);
 const IMPLEMENTED_ARCHIVE = new Set([
   "account_tx",
   "tx",
@@ -63,6 +66,14 @@ export class ArchiveApi {
     }
 
     const cmd = req.command;
+
+    if (REPORTING.has(cmd)) {
+      const mr =
+        cmd === "archive_balance_at"
+          ? await handleBalanceAt(this.#db, this.#scope, req)
+          : await handleDeltas(this.#db, this.#scope, req);
+      return this.#localFrom(mr);
+    }
 
     if (NODE_STATE.has(cmd) || SUBMISSION.has(cmd)) {
       return this.#forward(req);
