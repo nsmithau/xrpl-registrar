@@ -11,6 +11,8 @@
  * Optional: MPT_ISSUANCE_ID=<hex>, PORT=<port>, DATABASE_DIR=<dir> (persist).
  */
 import {
+  AdminApi,
+  AdminServer,
   ArchiveApi,
   ArchiveServer,
   AccountRepository,
@@ -20,6 +22,7 @@ import {
   consoleLogger,
   createClioClient,
   discover,
+  ingestIssuance,
   loadConfig,
   openArchiveDatabase,
 } from "../src/index.js";
@@ -60,11 +63,34 @@ console.log(
   `  curl -s http://127.0.0.1:${bound} -H 'content-type: application/json' \\\n` +
     `    -d '{"method":"mpt_holders","params":[{"mpt_issuance_id":"${MPT}","api_version":2}]}'`,
 );
+// Admin port (authenticated), enabled when ADMIN_TOKEN is set. Registering an
+// issuance here triggers discovery + backfill + derivation in the background.
+let adminServer: AdminServer | undefined;
+if (config.admin.token) {
+  adminServer = new AdminServer({
+    api: new AdminApi(db),
+    token: config.admin.token,
+    port: config.admin.port,
+    host: "127.0.0.1",
+    logger: consoleLogger,
+    onRegistered: (issuance) => {
+      ingestIssuance(client, db, issuance, consoleLogger).catch((err: unknown) =>
+        consoleLogger.error("background ingest failed", { error: String(err) }),
+      );
+    },
+  });
+  const adminBound = await adminServer.start();
+  console.log(`  Admin API    : http://127.0.0.1:${adminBound}/admin/issuances (Bearer token)`);
+} else {
+  console.log(`  Admin API    : disabled (set ADMIN_TOKEN to enable)`);
+}
+
 console.log(`\nPress Ctrl-C to stop.`);
 
 process.on("SIGINT", () => {
   void (async () => {
     await server.stop();
+    if (adminServer) await adminServer.stop();
     await client.disconnect();
     await db.close();
     process.exit(0);

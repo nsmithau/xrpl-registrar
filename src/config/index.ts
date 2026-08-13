@@ -17,6 +17,12 @@ export interface AppConfig {
      */
     readonly dataDir: string | undefined;
   };
+  readonly admin: {
+    /** Admin port (separate from the public read port). */
+    readonly port: number;
+    /** Bearer token required by the admin API. Admin is disabled if unset. */
+    readonly token: string | undefined;
+  };
   readonly governor: GovernorOptions;
 }
 
@@ -51,6 +57,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     db: {
       dataDir: env.DATABASE_DIR?.trim() || undefined,
+    },
+    admin: {
+      port: intFromEnv(env.ADMIN_PORT, 51235),
+      token: env.ADMIN_TOKEN?.trim() || undefined,
     },
     governor: {
       maxConcurrent: intFromEnv(env.GOVERNOR_MAX_CONCURRENT, DEFAULT_GOVERNOR_OPTIONS.maxConcurrent),

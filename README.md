@@ -44,6 +44,8 @@ The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-fil
 | `CLIO_MAX_RETRIES` | no | `5` | Retries per request on upstream load signals. |
 | `CLIO_CONNECTION_TIMEOUT_MS` | no | `20000` | WebSocket connection timeout. |
 | `DATABASE_DIR` | no | *(in-memory)* | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this. |
+| `ADMIN_TOKEN` | no | — | Bearer token for the admin API on a separate port. Unset disables the admin port. Never expose it publicly. |
+| `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
 | `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
 | `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
 | `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
@@ -63,55 +65,37 @@ It uses an example testnet issuance by default; override with `MPT_ISSUANCE_ID=<
 
 ## Registering issuances (Admin API)
 
-> **Not yet implemented.** This section documents the target Admin API so the
-> intended operator workflow is clear; the endpoints below do not exist yet and
-> the shapes may change. Track the implementation status in the project board.
+The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it runs discovery (auto-detecting the strategy from the token's on-ledger flags), backfills history, and derives balances — all in the background.
 
-The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: it auto-detects the discovery strategy from the token's on-ledger flags, runs discovery, backfills history, then keeps the archive current with a live tail.
+The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. Every request needs `Authorization: Bearer <token>`. Never expose it publicly — it surfaces account addresses and archive scope.
 
-The Admin API is served on a **separate, authenticated admin port** — never publicly exposed by default — and is distinct from the public Clio-compatible read API.
+**Register an MPT issuance:**
 
-**Register an MPT issuance** (e.g. an auth-required MPT):
-
-```http
-POST /admin/issuances
-Content-Type: application/json
-
-{
-  "kind": "mpt",
-  "mpt_issuance_id": "<64-hex MPTokenIssuanceID>",
-  "backfill_from_ledger": 0,          // optional; default = the issuance's creation ledger
-  "discovery_strategy": "auto",       // optional override: auto | authorization | traversal
-  "enabled": true
-}
+```bash
+curl -s http://127.0.0.1:51235/admin/issuances \
+  -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"kind":"mpt","mptIssuanceId":"<48-hex MPTokenIssuanceID>","discoveryStrategy":"auto"}'
 ```
 
 **Register an IOU issuance:**
 
-```http
-POST /admin/issuances
-Content-Type: application/json
-
-{
-  "kind": "iou",
-  "currency": "USD",
-  "issuer_account": "rEXAMPLE...",
-  "discovery_strategy": "auto",       // optional override: auto | trustline | traversal
-  "enabled": true
-}
+```bash
+curl -s http://127.0.0.1:51235/admin/issuances \
+  -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
+  -d '{"kind":"iou","currency":"USD","issuer":"rEXAMPLE...","discoveryStrategy":"trustline"}'
 ```
 
-On registration the ingestor reads the issuance's flags to pick a strategy (auth-required MPT → authorisation scan; IOU → trustline scan; non-auth MPT → graph traversal), all overridable via `discovery_strategy`.
+Optional fields: `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) and `backfillFromLedger`.
 
 **Inspect and manage:**
 
-```http
-GET   /admin/issuances            # list configured issuances and their progress
-GET   /admin/issuances/{id}       # one issuance: strategy, coverage, backfill state
-PATCH /admin/issuances/{id}       # { "enabled": false } to pause ingestion
+```
+GET   /admin/issuances            # list configured issuances
+GET   /admin/issuances/{id}       # status: accounts, backfill progress, coverage, last reconciliation
+PATCH /admin/issuances/{id}       # {"enabled": false} to pause
 ```
 
-The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. The operator UI is **read-only** — it shows progress and coverage but does not mutate scope; registration is Admin-API-only by design.
+The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. Registration is Admin-API-only by design; the (planned) operator UI is read-only.
 
 ## Licence
 
