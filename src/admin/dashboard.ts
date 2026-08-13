@@ -74,6 +74,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     border: none; border-radius: var(--radius);
   }
   button:hover { filter: brightness(1.05); }
+  button.copy {
+    margin-left: 8px; padding: 3px; line-height: 0; vertical-align: middle;
+    color: hsl(var(--muted-foreground)); background: transparent;
+    border: 1px solid hsl(var(--border)); border-radius: 5px;
+  }
+  button.copy svg { display: block; width: 14px; height: 14px; }
+  button.copy:hover { filter: none; color: hsl(var(--foreground)); border-color: hsl(var(--muted-foreground)); }
+  button.copy.copied { color: hsl(var(--success)); border-color: hsl(var(--success)); }
   main { padding: 0 24px 24px; }
   .card {
     background: hsl(var(--card)); border: 1px solid hsl(var(--border));
@@ -127,9 +135,40 @@ export const DASHBOARD_HTML = `<!doctype html>
 (function () {
   var token = sessionStorage.getItem("adminToken") || "";
   var el = function (id) { return document.getElementById(id); };
+  // Icons from Lucide (ISC). Inlined to keep the page self-contained.
+  var copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+  var checkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
   function headers() { return { authorization: "Bearer " + token }; }
   function short(s) { return s ? (s.length > 18 ? s.slice(0, 12) + "\\u2026" + s.slice(-4) : s) : "\\u2014"; }
   function cell(tr, v, cls) { var td = document.createElement("td"); if (cls) td.className = cls; td.textContent = String(v); tr.appendChild(td); return td; }
+
+  function copyText(text, btn) {
+    var done = function () {
+      btn.innerHTML = checkIcon; btn.classList.add("copied");
+      setTimeout(function () { btn.innerHTML = copyIcon; btn.classList.remove("copied"); }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+    } else { fallbackCopy(text); done(); }
+  }
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+  }
+  // Identifier cell: truncated display + a button that copies the full value.
+  function identifierCell(tr, label, full) {
+    var td = document.createElement("td"); td.className = "mono";
+    var span = document.createElement("span"); span.textContent = label; td.appendChild(span);
+    if (full) {
+      var btn = document.createElement("button"); btn.type = "button"; btn.className = "copy";
+      btn.innerHTML = copyIcon; btn.title = "Copy " + full; btn.setAttribute("aria-label", "Copy " + full);
+      btn.onclick = function () { copyText(full, btn); };
+      td.appendChild(btn);
+    }
+    tr.appendChild(td);
+  }
 
   function renderRow(s) {
     var i = s.issuance, bf = s.backfill;
@@ -137,7 +176,8 @@ export const DASHBOARD_HTML = `<!doctype html>
     var tr = document.createElement("tr");
     cell(tr, i.id);
     cell(tr, i.kind);
-    cell(tr, i.kind === "mpt" ? short(i.mptIssuanceId) : (i.currency + " / " + short(i.issuerAccount)), "mono");
+    if (i.kind === "mpt") identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId);
+    else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount);
     cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
