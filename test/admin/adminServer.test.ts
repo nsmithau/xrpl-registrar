@@ -38,6 +38,13 @@ describe("AdminServer", () => {
     expect(wrong.status).toBe(401);
   });
 
+  it("serves the read-only dashboard shell without auth (no data in it)", async () => {
+    const res = await fetch(`${base}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("operator dashboard");
+  });
+
   it("registers an issuance and fires onRegistered", async () => {
     const res = await fetch(`${base}/admin/issuances`, {
       method: "POST",

@@ -81,6 +81,7 @@ if (config.admin.token) {
   });
   const adminBound = await adminServer.start();
   console.log(`  Admin API    : http://127.0.0.1:${adminBound}/admin/issuances (Bearer token)`);
+  console.log(`  Dashboard    : http://127.0.0.1:${adminBound}/  (read-only; paste the token)`);
 } else {
   console.log(`  Admin API    : disabled (set ADMIN_TOKEN to enable)`);
 }

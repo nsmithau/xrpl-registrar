@@ -6,6 +6,7 @@ import type { IssuanceRecord } from "../db/repositories/issuances.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 
 import type { AdminApi, RegisterIssuance } from "./adminApi.js";
+import { DASHBOARD_HTML } from "./dashboard.js";
 
 export interface AdminServerOptions {
   readonly api: AdminApi;
@@ -72,10 +73,21 @@ export class AdminServer {
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+      // The read-only dashboard shell is static and carries no data, so it is
+      // served without auth; it prompts for the token and calls the (authed)
+      // JSON endpoints below.
+      if (req.method === "GET" && (pathname === "/" || pathname === "/dashboard")) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(DASHBOARD_HTML);
+        return;
+      }
+
       if (!this.#authorized(req)) return send(res, 401, { error: "unauthorized" });
 
-      const url = new URL(req.url ?? "/", "http://localhost");
-      const parts = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean); // e.g. ["admin","issuances","1"]
+      const parts = pathname.split("/").filter(Boolean); // e.g. ["admin","issuances","1"]
       if (parts[0] !== "admin" || parts[1] !== "issuances") {
         return send(res, 404, { error: "notFound" });
       }
