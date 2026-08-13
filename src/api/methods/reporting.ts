@@ -1,4 +1,5 @@
 import type { Database } from "../../db/database.js";
+import { LedgerTimeRepository } from "../../db/repositories/ledgers.js";
 import { invalidParams, notInArchive } from "../errors.js";
 import type { ScopeRepository } from "../scope.js";
 import type { ApiRequest, MethodResult } from "../types.js";
@@ -42,6 +43,25 @@ async function resolveIssuance(db: Database, req: ApiRequest): Promise<ResolvedI
   return null;
 }
 
+/** Resolve a point in time to a ledger index: an explicit `ledgerKey` wins,
+ * otherwise a `timeKey` ISO timestamp is mapped to the ledger in effect then. */
+async function resolveLedger(
+  db: Database,
+  req: ApiRequest,
+  ledgerKey: string,
+  timeKey: string,
+): Promise<{ ledger: number } | { error: string }> {
+  const explicit = asNum(req[ledgerKey]);
+  if (explicit !== undefined) return { ledger: explicit };
+  const time = typeof req[timeKey] === "string" ? req[timeKey] : undefined;
+  if (time) {
+    const ledger = await new LedgerTimeRepository(db).resolveAtOrBefore(time);
+    if (ledger === null) return { error: `no ledger recorded at or before ${time}` };
+    return { ledger };
+  }
+  return { error: `'${ledgerKey}' (number) or '${timeKey}' (ISO timestamp) is required` };
+}
+
 async function inIssuanceScope(db: Database, issuanceId: number, address: string): Promise<boolean> {
   const { rows } = await db.query(
     "SELECT 1 FROM account_issuance WHERE issuance_id = $1 AND address = $2 LIMIT 1",
@@ -64,9 +84,11 @@ export async function handleBalanceAt(
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
 
   const account = typeof req.account === "string" ? req.account : undefined;
-  const ledger = asNum(req.ledger_index);
   if (!account) return { result: invalidParams("'account' is required") };
-  if (ledger === undefined) return { result: invalidParams("'ledger_index' (a number) is required") };
+
+  const resolved = await resolveLedger(db, req, "ledger_index", "date");
+  if ("error" in resolved) return { result: invalidParams(resolved.error) };
+  const ledger = resolved.ledger;
 
   if (!(await inIssuanceScope(db, issuance.id, account))) {
     return { result: notInArchive(`Account ${account}`, await scope.summarize()) };
@@ -105,11 +127,12 @@ export async function handleDeltas(
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
 
-  const from = asNum(req.from_ledger);
-  const to = asNum(req.to_ledger);
-  if (from === undefined || to === undefined) {
-    return { result: invalidParams("'from_ledger' and 'to_ledger' (numbers) are required") };
-  }
+  const fromResolved = await resolveLedger(db, req, "from_ledger", "from_time");
+  if ("error" in fromResolved) return { result: invalidParams(fromResolved.error) };
+  const toResolved = await resolveLedger(db, req, "to_ledger", "to_time");
+  if ("error" in toResolved) return { result: invalidParams(toResolved.error) };
+  const from = fromResolved.ledger;
+  const to = toResolved.ledger;
   const account = typeof req.account === "string" ? req.account : undefined;
 
   const params: unknown[] = [issuance.id, from, to];

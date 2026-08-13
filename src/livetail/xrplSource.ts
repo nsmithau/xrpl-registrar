@@ -91,8 +91,19 @@ export class XrplTailSource implements TailSource {
     this.#started = true;
 
     this.#client.on("ledgerClosed", (msg) => {
-      const ledgerIndex = asRecord(msg)?.["ledger_index"];
-      if (typeof ledgerIndex === "number") this.#queue.push({ type: "ledger", ledgerIndex });
+      const record = asRecord(msg);
+      const ledgerIndex = record?.["ledger_index"];
+      if (typeof ledgerIndex !== "number") return;
+      const ledgerTime = record?.["ledger_time"]; // Ripple epoch (seconds since 2000-01-01)
+      const closeTimeIso =
+        typeof ledgerTime === "number"
+          ? new Date((ledgerTime + 946_684_800) * 1000).toISOString()
+          : undefined;
+      this.#queue.push({
+        type: "ledger",
+        ledgerIndex,
+        ...(closeTimeIso !== undefined ? { closeTimeIso } : {}),
+      });
     });
     this.#client.on("transaction", (msg) => {
       this.#onTransaction(msg).catch((err: unknown) =>

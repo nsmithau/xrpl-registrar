@@ -1,3 +1,4 @@
+import { captureCloseTimes } from "../backfill/closeTimes.js";
 import { BackfillWorker } from "../backfill/worker.js";
 import type { Database } from "../db/database.js";
 import { AccountRepository } from "../db/repositories/accounts.js";
@@ -70,6 +71,10 @@ export async function ingestIssuance(
     fromLedger,
   );
   const { processed } = await worker.runIssuance(issuance.id);
+
+  // Capture close times for the ledgers we ingested, enabling time-based
+  // reporting later.
+  await captureCloseTimes(client, db, issuance.id);
 
   const deltaRows =
     issuance.kind === "mpt"

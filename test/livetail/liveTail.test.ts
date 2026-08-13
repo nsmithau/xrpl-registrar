@@ -74,6 +74,17 @@ describe("LiveTail", () => {
     expect(stats.lastContiguousLedger).toBe(104);
   });
 
+  it("records ledger close times from ledger events", async () => {
+    const events: TailEvent[] = [
+      { type: "ledger", ledgerIndex: 500, closeTimeIso: "2026-08-01T00:00:00.000Z" },
+      { type: "ledger", ledgerIndex: 501, closeTimeIso: "2026-08-01T00:00:03.000Z" },
+    ];
+    const tail = new LiveTail({ db, source: source(events) });
+    await tail.run();
+    const { rows } = await db.query<{ n: number | string }>("SELECT count(*)::bigint AS n FROM ledgers");
+    expect(Number(rows[0]!.n)).toBe(2);
+  });
+
   it("is idempotent when the same transaction is seen twice (live then heal)", async () => {
     const tail = new LiveTail({
       db,

@@ -4,6 +4,8 @@ import type { Provenance } from "../clio/types.js";
 export interface LedgerEvent {
   readonly type: "ledger";
   readonly ledgerIndex: number;
+  /** ISO close time, when the stream provides it (for time-based reporting). */
+  readonly closeTimeIso?: string;
 }
 
 /** A validated transaction touching one or more in-scope accounts. */

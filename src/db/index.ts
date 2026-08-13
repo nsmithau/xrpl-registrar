@@ -30,6 +30,7 @@ export {
   type BackfillJob,
   type BackfillStatus,
 } from "./repositories/backfillJobs.js";
+export { LedgerTimeRepository, type LedgerTime } from "./repositories/ledgers.js";
 
 /**
  * Open the archive database (in-process PGlite) and bring it up to the latest

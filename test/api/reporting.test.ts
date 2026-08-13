@@ -6,6 +6,7 @@ import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import { BalanceDeltaRepository } from "../../src/reconcile/balanceDeltas.js";
+import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
 
 const MPT = "MPT_A";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
@@ -29,6 +30,10 @@ describe("reporting extensions", () => {
       { hash: "T2", address: "rA", delta: 25n },
     ]);
     await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1,100,200,'t')", ["rA"]);
+    await new LedgerTimeRepository(db).recordMany([
+      { ledgerIndex: 100, closeTimeIso: "2026-01-01T00:00:00Z" },
+      { ledgerIndex: 200, closeTimeIso: "2026-06-01T00:00:00Z" },
+    ]);
   });
 
   afterEach(async () => {
@@ -47,6 +52,19 @@ describe("reporting extensions", () => {
   it("warns when the balance ledger exceeds coverage", async () => {
     const res = await api.handle({ command: "archive_balance_at", mpt_issuance_id: MPT, account: "rA", ledger_index: 250, api_version: 2 });
     expect(res.warnings.map((w) => w.id)).toContain(65003);
+  });
+
+  it("archive_balance_at resolves a date to the ledger in effect then", async () => {
+    // 2026-03-01 is after ledger 100 (Jan) but before ledger 200 (Jun).
+    const res = await api.handle({ command: "archive_balance_at", mpt_issuance_id: MPT, account: "rA", date: "2026-03-01T00:00:00Z", api_version: 2 });
+    expect(res.result.status).toBe("success");
+    expect(res.result.ledger_index).toBe(100);
+    expect(res.result.balance).toBe("10");
+  });
+
+  it("errors when no ledger exists at or before the requested time", async () => {
+    const res = await api.handle({ command: "archive_balance_at", mpt_issuance_id: MPT, account: "rA", date: "2020-01-01T00:00:00Z", api_version: 2 });
+    expect(res.result.error).toBe("invalidParams");
   });
 
   it("archive_deltas nets change per account over a ledger range", async () => {

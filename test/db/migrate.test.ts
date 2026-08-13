@@ -15,14 +15,14 @@ describe("runMigrations", () => {
   });
 
   it("applies pending migrations once and is idempotent", async () => {
-    expect(await runMigrations(db)).toBe(1);
+    expect(await runMigrations(db)).toBe(2);
     expect(await runMigrations(db)).toBe(0);
 
     const { rows } = await db.query<{ id: number | string; name: string }>(
       "SELECT id, name FROM schema_migrations ORDER BY id",
     );
-    expect(rows.map((r) => Number(r.id))).toEqual([1]);
-    expect(rows[0]!.name).toBe("core_schema");
+    expect(rows.map((r) => Number(r.id))).toEqual([1, 2]);
+    expect(rows.map((r) => r.name)).toEqual(["core_schema", "ledgers"]);
   });
 
   it("creates the core tables", async () => {

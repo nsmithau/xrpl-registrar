@@ -1,4 +1,5 @@
 import type { Database } from "../db/database.js";
+import { LedgerTimeRepository } from "../db/repositories/ledgers.js";
 import { insertTransactionRows, type IngestTransaction } from "../db/repositories/transactions.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 
@@ -49,6 +50,7 @@ export class LiveTail {
   readonly #gaps: GapTracker;
   readonly #onGap: (range: LedgerRange) => Promise<void> | void;
   readonly #logger: Logger;
+  readonly #ledgerTimes: LedgerTimeRepository;
 
   #running = false;
   #ingested = 0;
@@ -60,6 +62,7 @@ export class LiveTail {
     this.#gaps = new GapTracker(options.startLedger);
     this.#onGap = options.onGap ?? (() => {});
     this.#logger = options.logger ?? nullLogger;
+    this.#ledgerTimes = new LedgerTimeRepository(options.db);
   }
 
   /** Run until the source ends or `stop()` is called. */
@@ -68,6 +71,9 @@ export class LiveTail {
     for await (const ev of this.#source.events()) {
       if (!this.#running) break;
       if (ev.type === "ledger") {
+        if (ev.closeTimeIso) {
+          await this.#ledgerTimes.record({ ledgerIndex: ev.ledgerIndex, closeTimeIso: ev.closeTimeIso });
+        }
         const gap = this.#gaps.observe(ev.ledgerIndex);
         if (gap) {
           this.#gapCount += 1;

@@ -124,6 +124,18 @@ CREATE TABLE reconciliation_run (
 );
 `;
 
+// Ledger close times, so balances can be reported by time (resolve a
+// timestamp to the ledger in effect at/before it). Populated from the live
+// tail's ledgerClosed events and a historical capture pass.
+const LEDGERS_SCHEMA = /* sql */ `
+CREATE TABLE ledgers (
+  ledger_index   BIGINT PRIMARY KEY,
+  close_time_iso TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX ledgers_close_time_idx ON ledgers (close_time_iso);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: 1, name: "core_schema", sql: CORE_SCHEMA },
+  { id: 2, name: "ledgers", sql: LEDGERS_SCHEMA },
 ];
