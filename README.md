@@ -2,7 +2,7 @@
 
 A filtered XRPL archive ingestor: maintains a local, verifiable transaction archive scoped to one or more token issuances (MPT or IOU), sourced from a full-history [Clio](https://xrpl.org/docs/concepts/networks-and-servers/the-clio-server) server, and served through a Clio-compatible API.
 
-**Status: early implementation.** The Clio client and its global concurrency governor — the single upstream chokepoint every other component builds on — are implemented and unit-tested. Discovery, backfill, live tail, reconciler, forwarder, storage, and the API surface are not yet built.
+**Status: working prototype, verified end-to-end against XRPL testnet.** The full pipeline is implemented and unit-tested — discovery, resumable backfill, live tail, storage, reconciliation, the read API, an authenticated admin API, and a read-only dashboard. Not yet hardened for production (see [Roadmap](#roadmap)).
 
 ## Why
 
@@ -14,72 +14,55 @@ Stellar solved the same problem with Horizon's [Ingestion Filtering](https://dev
 
 ## How it works
 
-Operators configure **issuances**, not account lists. For each issuance the service derives the complete set of accounts that ever held the token, backfills their history from Clio, and keeps it current with a live tail. Reads are served through an API that mirrors Clio's request and response shapes, so existing `xrpl.js` code works by changing a URL.
+Operators configure **issuances**, not account lists. For each issuance the service:
 
-## Development
+1. **Discovers** the complete set of accounts that ever held the token — via an authorisation scan (auth-required MPTs), a trustline scan (IOUs), or graph traversal (the general fallback), auto-selected from the token's on-ledger flags.
+2. **Backfills** each account's history from Clio, bounded and resumable (checkpointed per page, so a crash resumes with no gaps or duplicates), retaining the raw `tx_blob`/`meta_blob` and provenance on every record.
+3. **Keeps current** with a live `subscribe` tail that detects ledger-sequence gaps and self-heals them.
+4. **Derives** per-account balance deltas and **reconciles** them against the state reconstructed from metadata.
 
-Requires Node 22+ and [pnpm](https://pnpm.io/).
+Reads are served through an API that mirrors Clio's request/response shapes — so existing `xrpl.js` code works by changing a URL — plus namespaced reporting extensions Clio has no equivalent for. All upstream traffic passes through one governed client with a global concurrency cap and honest backoff, so adding issuances never multiplies upstream load.
+
+### Design principles
+
+Data from this archive backs regulatory filings, so the design **fails closed**: empty configuration is an error, out-of-scope requests return a distinct `notInArchive` (never `actNotFound` or a plausible empty result), coverage is reported honestly (never a `-1` echo), and everything derived is re-derivable from the retained raw blobs.
+
+## Quick start
+
+Requires Node 22+, [pnpm](https://pnpm.io/), and a full-history Clio endpoint. Storage is an in-process Postgres ([PGlite](https://pglite.dev/)) — no separate database server or container.
 
 ```bash
 pnpm install
-pnpm test        # vitest
-pnpm typecheck   # tsc --noEmit
-pnpm lint        # eslint
-pnpm build       # emit to dist/
+CLIO_ENDPOINT=wss://<full-history-clio> ADMIN_TOKEN=secret pnpm serve
 ```
 
-### Configuration
+This starts:
 
-All configuration is read from the environment. Copy [`.env.example`](.env.example) to `.env` and adjust:
+- **Public read API** — `ws://127.0.0.1:51234` (WebSocket) and `http://127.0.0.1:51234` (HTTP JSON-RPC).
+- **Admin API** — `http://127.0.0.1:51235` (authenticated; only when `ADMIN_TOKEN` is set).
+- **Operator dashboard** — `http://127.0.0.1:51235/` (read-only).
+
+Point an `xrpl.js` client at the WebSocket URL, or use `curl`/Postman against the HTTP endpoint exactly as you would a Clio server.
+
+There is also a self-contained tour that discovers + backfills a testnet issuance and queries it back:
 
 ```bash
-cp .env.example .env
+CLIO_ENDPOINT=wss://<testnet-clio> pnpm demo   # override issuance with MPT_ISSUANCE_ID=<hex>
 ```
-
-The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-file-if-exists`), so you can run them with no inline variables. An inline variable still overrides the file — e.g. `CLIO_ENDPOINT=… pnpm serve`.
-
-| Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `CLIO_ENDPOINT` | **yes** | — | WebSocket URL of a **full-history** Clio server. No default: a missing or wrong source is an error, never a silent fallback. |
-| `CLIO_MAX_RETRIES` | no | `5` | Retries per request on upstream load signals. |
-| `CLIO_CONNECTION_TIMEOUT_MS` | no | `20000` | WebSocket connection timeout. |
-| `DATABASE_DIR` | no | *(in-memory)* | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this. |
-| `ADMIN_TOKEN` | no | — | Bearer token for the admin API on a separate port. Unset disables the admin port. Never expose it publicly. |
-| `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
-| `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
-| `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
-| `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
-| `GOVERNOR_BACKOFF_FACTOR` | no | `2` | Exponential growth between consecutive load signals. |
-
-Concurrency and backoff are governed **globally**, not per issuance — adding issuances does not multiply upstream load. Storage is an in-process Postgres ([PGlite](https://pglite.dev/)) — no separate database server or container to run.
-
-### End-to-end demo
-
-[`examples/mpt-demo.ts`](examples/mpt-demo.ts) registers an MPT issuance, discovers its holders from a live Clio, backfills their transactions into an in-process database with provenance, and queries the archive back — a compact tour of the governed client + storage together. Point it at any full-history **testnet** Clio (the endpoint is taken from the environment, so no host is baked into the source):
-
-```bash
-CLIO_ENDPOINT=wss://<testnet-clio-endpoint> pnpm demo
-```
-
-It uses an example testnet issuance by default; override with `MPT_ISSUANCE_ID=<hex>`. Note the testnet is periodically reset, so a testnet Clio is "full history" only since the last reset — enough to see an issuance's whole lifecycle.
 
 ## Registering issuances (Admin API)
 
-The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it runs discovery (auto-detecting the strategy from the token's on-ledger flags), backfills history, and derives balances — all in the background.
+The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it runs discovery, backfills history, captures ledger close times, and derives balances — all in the background.
 
 The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. Every request needs `Authorization: Bearer <token>`. Never expose it publicly — it surfaces account addresses and archive scope.
 
-**Register an MPT issuance:**
-
 ```bash
+# Register an MPT issuance
 curl -s http://127.0.0.1:51235/admin/issuances \
   -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
   -d '{"kind":"mpt","mptIssuanceId":"<48-hex MPTokenIssuanceID>","discoveryStrategy":"auto"}'
-```
 
-**Register an IOU issuance:**
-
-```bash
+# Register an IOU issuance
 curl -s http://127.0.0.1:51235/admin/issuances \
   -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
   -d '{"kind":"iou","currency":"USD","issuer":"rEXAMPLE...","discoveryStrategy":"trustline"}'
@@ -87,15 +70,70 @@ curl -s http://127.0.0.1:51235/admin/issuances \
 
 Optional fields: `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) and `backfillFromLedger`.
 
-**Inspect and manage:**
-
 ```
 GET   /admin/issuances            # list configured issuances
 GET   /admin/issuances/{id}       # status: accounts, backfill progress, coverage, last reconciliation
 PATCH /admin/issuances/{id}       # {"enabled": false} to pause
 ```
 
-The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. Registration is Admin-API-only by design; the (planned) operator UI is read-only.
+The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. Registration is Admin-API-only by design; the operator dashboard (served at the admin port root) is read-only.
+
+## Querying the archive (read API)
+
+`api_version: 2` is required (requests that omit it are rejected). Methods fall into four classes:
+
+| Class | Methods | Behaviour |
+|-------|---------|-----------|
+| Archive-scoped reads | `account_tx`, `tx`, `account_info`, `account_lines`, `mpt_holders` | Served from the archive, scope-checked. Out-of-scope → `notInArchive`; honest coverage ranges. |
+| Reporting extensions | `archive_balance_at`, `archive_deltas` | Namespaced (not Clio-shaped). Balances and net deltas by ledger **or by time**, exact for MPT and IOU. |
+| Node state | `server_info`, `fee`, `ledger` | Forwarded to a configured upstream. |
+| Submission | `submit`, `submit_multisigned` | Forwarded. |
+
+Every archive response carries Clio's `2001` warning plus a filtered-archive warning describing the tracked scope.
+
+```bash
+# Current holders of an MPT (HTTP JSON-RPC, like a Clio server)
+curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
+  -d '{"method":"mpt_holders","params":[{"mpt_issuance_id":"<hex>","api_version":2}]}'
+
+# A holder's balance as of a date (reporting extension)
+curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
+  -d '{"method":"archive_balance_at","params":[{"mpt_issuance_id":"<hex>","account":"r...","date":"2026-03-01T00:00:00Z","api_version":2}]}'
+```
+
+`archive_balance_at` accepts `ledger_index` or `date`; `archive_deltas` accepts `from_ledger`/`to_ledger` or `from_time`/`to_time`.
+
+## Configuration
+
+All configuration is read from the environment. Copy [`.env.example`](.env.example) to `.env` and adjust. The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-file-if-exists`); an inline variable still overrides the file.
+
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `CLIO_ENDPOINT` | **yes** | — | WebSocket URL of a **full-history** Clio server. No default: a missing or wrong source is an error, never a silent fallback. |
+| `CLIO_MAX_RETRIES` | no | `5` | Retries per request on upstream load signals. |
+| `CLIO_CONNECTION_TIMEOUT_MS` | no | `20000` | WebSocket connection timeout. |
+| `DATABASE_DIR` | no | *(in-memory)* | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this. |
+| `ADMIN_TOKEN` | no | — | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly. |
+| `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
+| `PORT` | no | `51234` | Port for the public read API (used by `pnpm serve`). |
+| `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
+| `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
+| `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
+| `GOVERNOR_BACKOFF_FACTOR` | no | `2` | Exponential growth between consecutive load signals. |
+
+## Development
+
+```bash
+pnpm test              # unit tests (offline, in-process Postgres)
+pnpm test:integration  # live smoke test — set CLIO_ENDPOINT
+pnpm typecheck
+pnpm lint
+pnpm build             # emit to dist/
+```
+
+## Roadmap
+
+Not yet built: parallel/cross-worker backfill (throughput for very large issuances), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
 
 ## Licence
 
