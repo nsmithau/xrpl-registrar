@@ -111,12 +111,28 @@ export class XrplTailSource implements TailSource {
       );
     });
 
+    // Re-subscribe on every (re)connect: xrpl.js auto-reconnects the socket
+    // when it drops, but the subscription is server-side and does not survive a
+    // reconnect, so it must be re-issued or the stream silently goes quiet.
+    this.#client.on("connected", () => void this.#subscribe());
+    this.#client.on("disconnected", (code) =>
+      this.#logger.warn("live tail socket disconnected; will resubscribe on reconnect", { code }),
+    );
+
     await this.#client.connect();
-    await this.#client.request({
-      command: "subscribe",
-      streams: ["ledger"],
-      accounts: this.#accounts,
-    } as unknown as Parameters<Client["request"]>[0]);
+  }
+
+  async #subscribe(): Promise<void> {
+    try {
+      await this.#client.request({
+        command: "subscribe",
+        streams: ["ledger"],
+        accounts: this.#accounts,
+      } as unknown as Parameters<Client["request"]>[0]);
+      this.#logger.info("live tail subscribed", { accounts: this.#accounts.length });
+    } catch (err) {
+      this.#logger.error("live tail subscribe failed", { error: String(err) });
+    }
   }
 
   async #onTransaction(msg: unknown): Promise<void> {

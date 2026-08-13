@@ -66,8 +66,13 @@ const scope = scopeRows.rows.map((r) => r.address);
 let tail: LiveTail | undefined;
 let tailSource: XrplTailSource | undefined;
 if (scope.length > 0) {
+  // Anchor at the latest ledger observed by either backfill (coverage) or a
+  // prior tail run (ledgers), so a restart only heals the small recent gap.
   const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
-  const highWater = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : undefined;
+  const led = await db.query<{ hi: number | string | null }>("SELECT max(ledger_index) AS hi FROM ledgers");
+  const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
+  const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
+  const highWater = Math.max(covHi, ledHi) || undefined;
   tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: scope, reader: client });
   tail = new LiveTail({
     db,
