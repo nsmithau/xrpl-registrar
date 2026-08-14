@@ -253,6 +253,27 @@ if (subs.length > 0) {
   console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`);
 }
 
+// Resume any interrupted backfill on startup: a prior run may have left pending
+// (never reached), running (crashed), or failed (transient upstream) jobs.
+// Without this they wait for the next hourly re-discovery; here they finish now,
+// in the background, so serve comes up immediately.
+async function resumeBackfills(): Promise<void> {
+  for (const issuance of await new IssuanceRepository(db).list()) {
+    if (!issuance.enabled) continue;
+    const { rows } = await db.query<{ n: number | string }>(
+      "SELECT count(*)::int AS n FROM backfill_job WHERE issuance_id = $1 AND status IN ('pending','running','failed')",
+      [issuance.id],
+    );
+    const outstanding = Number(rows[0]?.n ?? 0);
+    if (outstanding === 0) continue;
+    const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
+    log.info("resuming interrupted backfill", { issuanceId: issuance.id, outstanding });
+    const worker = new BackfillWorker({ client, db, logger: log, deriveDeltas });
+    await activity.track("backfill", `resuming ${label ?? issuance.id}`, () => worker.runIssuance(issuance.id));
+  }
+}
+void resumeBackfills().catch((err: unknown) => log.error("resume backfill failed", { error: String(err) }));
+
 // Periodic re-discovery is now a *safety net*: the live tail discovers new
 // holders from the stream (via the issuer subscription) as they appear, so this
 // only backstops anything a tail gap might have missed. It re-runs the full
