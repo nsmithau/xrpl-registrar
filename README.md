@@ -54,7 +54,7 @@ CLIO_ENDPOINT=wss://<testnet-clio> pnpm demo   # override issuance with MPT_ISSU
 
 The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it runs discovery, backfills history, captures ledger close times, and derives balances — all in the background.
 
-The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. Every request needs `Authorization: Bearer <token>`. Never expose it publicly — it surfaces account addresses and archive scope.
+The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. API clients (curl, Postman, xrpl.js) authenticate with `Authorization: Bearer <token>` on every request. The browser dashboard instead signs in once via `POST /admin/login`, which exchanges the token for an httpOnly, `SameSite=Strict` session cookie — so the token is never kept in JS-readable storage. Never expose this port publicly — it surfaces account addresses and archive scope.
 
 ```bash
 # Register an MPT issuance

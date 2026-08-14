@@ -48,6 +48,39 @@ describe("AdminServer", () => {
     expect(await res.text()).toContain("operator dashboard");
   });
 
+  it("exchanges the token at /admin/login for an httpOnly session cookie that authorizes in its place", async () => {
+    // Wrong token is rejected, no cookie minted.
+    const bad = await fetch(`${base}/admin/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "wrong" }),
+    });
+    expect(bad.status).toBe(401);
+
+    // Correct token mints a hardened session cookie.
+    const ok = await fetch(`${base}/admin/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: TOKEN }),
+    });
+    expect(ok.status).toBe(200);
+    const setCookie = ok.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/adm_session=/);
+    expect(setCookie).toMatch(/HttpOnly/i);
+    expect(setCookie).toMatch(/SameSite=Strict/i);
+    const cookie = setCookie.split(";")[0]!; // adm_session=<id>
+
+    // The cookie authorizes with no bearer header.
+    const list = await fetch(`${base}/admin/issuances`, { headers: { cookie } });
+    expect(list.status).toBe(200);
+
+    // Logout invalidates the session; the same cookie no longer authorizes.
+    const out = await fetch(`${base}/admin/logout`, { method: "POST", headers: { cookie } });
+    expect(out.status).toBe(200);
+    const after = await fetch(`${base}/admin/issuances`, { headers: { cookie } });
+    expect(after.status).toBe(401);
+  });
+
   it("registers an issuance and fires onRegistered", async () => {
     const res = await fetch(`${base}/admin/issuances`, {
       method: "POST",

@@ -65,6 +65,10 @@ export const DASHBOARD_HTML = `<!doctype html>
   header .logo { height: 22px; width: auto; color: hsl(var(--primary)); }
   header h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
   header .sub { color: hsl(var(--muted-foreground)); font-size: 13px; }
+  /* Combined Login/Logout control, top-right. */
+  header .authbtn { margin-left: auto; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 104px; padding: 7px 14px; font-size: 13px; font-weight: 500; cursor: pointer; color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); border: none; border-radius: var(--radius); }
+  header .authbtn svg { width: 15px; height: 15px; display: block; }
+  header .authbtn:hover { filter: brightness(1.05); }
   #auth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 24px; }
   input {
     padding: 8px 10px; min-width: 300px; font: inherit; color: inherit;
@@ -114,6 +118,17 @@ export const DASHBOARD_HTML = `<!doctype html>
   .pill.active { color: hsl(var(--foreground)); }
   .pill.active .dot { background: hsl(var(--primary)); animation: pulse 2s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  /* Sign-in modal. */
+  .modal-backdrop { position: fixed; inset: 0; background: hsl(222 40% 4% / 0.55); display: none; align-items: center; justify-content: center; padding: 24px; z-index: 50; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); padding: 22px 22px 18px; width: min(420px, 92vw); box-shadow: 0 10px 40px hsl(222 40% 4% / 0.35); }
+  .modal h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  .modal p { margin: 0; color: hsl(var(--muted-foreground)); font-size: 13px; }
+  .modal input { margin-top: 16px; width: 100%; min-width: 0; }
+  .modal .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .modal-err { color: hsl(var(--destructive)); font-size: 13px; min-height: 18px; margin-top: 8px; }
+  button.ghost { color: hsl(var(--foreground)); background: transparent; border: 1px solid hsl(var(--border)); }
+  button.ghost:hover { filter: none; border-color: hsl(var(--muted-foreground)); }
   #summary { color: hsl(var(--muted-foreground)); font-size: 13px; margin: 4px 0 12px; }
   #meta { color: hsl(var(--muted-foreground)); margin-top: 14px; font-size: 12px; }
   #err { color: hsl(var(--destructive)); font-size: 13px; }
@@ -129,16 +144,27 @@ export const DASHBOARD_HTML = `<!doctype html>
   </svg>
   <h1>XRPL Ingestor</h1>
   <span class="sub">operator dashboard · read-only</span>
+  <button id="authbtn" class="authbtn">Login</button>
 </header>
 <div id="auth">
-  <input id="token" type="password" placeholder="Admin bearer token" autocomplete="off" />
-  <button id="connect">Connect</button>
   <span id="err"></span>
   <span id="status">
     <span id="act-backfill" class="pill"></span>
     <span id="act-discovery" class="pill"></span>
     <span id="ledger" class="counter"></span>
   </span>
+</div>
+<div id="modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal">
+    <h2 id="modal-title">Admin sign-in</h2>
+    <p>Enter the admin bearer token to access the dashboard.</p>
+    <input id="token" type="password" placeholder="Admin bearer token" autocomplete="off" />
+    <div id="modal-err" class="modal-err"></div>
+    <div class="row">
+      <button id="cancel" class="ghost" type="button">Cancel</button>
+      <button id="submit" type="button">Sign in</button>
+    </div>
+  </div>
 </div>
 <main id="app" hidden>
   <div id="summary"></div>
@@ -155,12 +181,18 @@ export const DASHBOARD_HTML = `<!doctype html>
 </main>
 <script>
 (function () {
-  var token = sessionStorage.getItem("adminToken") || "";
+  // The admin token is never held here: it is exchanged at /admin/login for an
+  // httpOnly, SameSite=Strict session cookie the browser sends automatically.
+  // The cookie is invisible to JS, so 'live' just tracks whether we are in.
+  var live = false;
   var el = function (id) { return document.getElementById(id); };
   // Icons from Lucide (ISC). Inlined to keep the page self-contained.
   var copyIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
   var checkIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-  function headers() { return { authorization: "Bearer " + token }; }
+  var loginIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" x2="3" y1="12" y2="12"/></svg>';
+  var logoutIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>';
+  // Same-origin fetch; the session cookie rides along automatically.
+  function api(path, opts) { var o = opts || {}; o.credentials = "same-origin"; return fetch(path, o); }
   function short(s) { return s ? (s.length > 18 ? s.slice(0, 12) + "\\u2026" + s.slice(-4) : s) : "\\u2014"; }
   function cell(tr, v, cls) { var td = document.createElement("td"); if (cls) td.className = cls; td.textContent = String(v); tr.appendChild(td); return td; }
 
@@ -218,14 +250,33 @@ export const DASHBOARD_HTML = `<!doctype html>
     return tr;
   }
 
+  function setLoggedIn(yes) {
+    el("authbtn").innerHTML = (yes ? logoutIcon : loginIcon) + "<span>" + (yes ? "Logout" : "Login") + "</span>";
+  }
+
+  function showSignedOut(msg) {
+    live = false;
+    setLoggedIn(false);
+    el("app").hidden = true;
+    el("err").textContent = msg || "";
+    el("ledger").className = "counter";
+    renderPill("act-backfill", null);
+    renderPill("act-discovery", null);
+  }
+
   async function load() {
     try {
-      var res = await fetch("/admin/issuances", { headers: headers() });
-      if (res.status === 401) { el("err").textContent = "Invalid token"; el("app").hidden = true; token = ""; return; }
+      var res = await api("/admin/issuances");
+      // Distinguish an expired session (was live) from a fresh page load (just
+      // prompt, no error styling).
+      if (res.status === 401) { showSignedOut(live ? "Session expired \\u2014 sign in again" : ""); return; }
       var data = await res.json();
       var statuses = await Promise.all(data.issuances.map(function (i) {
-        return fetch("/admin/issuances/" + i.id, { headers: headers() }).then(function (r) { return r.json(); });
+        return api("/admin/issuances/" + i.id).then(function (r) { return r.json(); });
       }));
+      live = true;
+      setLoggedIn(true);
+      el("app").hidden = false;
       var rows = el("rows"); rows.textContent = "";
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
@@ -258,16 +309,57 @@ export const DASHBOARD_HTML = `<!doctype html>
     else p.title = "not run yet";
   }
 
-  function connect() {
-    token = el("token").value.trim();
-    sessionStorage.setItem("adminToken", token);
-    el("app").hidden = false;
-    load();
+  function openModal() {
+    el("modal-err").textContent = "";
+    el("token").value = "";
+    el("modal").classList.add("open");
+    el("token").focus();
   }
-  el("connect").onclick = connect;
-  el("token").addEventListener("keydown", function (e) { if (e.key === "Enter") connect(); });
-  if (token) { el("app").hidden = false; load(); }
-  setInterval(function () { if (token) load(); }, 3000);
+  function closeModal() {
+    el("modal").classList.remove("open");
+    el("token").value = ""; // never leave the secret in the field
+  }
+
+  // Exchange the token for a session cookie. The token is sent once, in the
+  // request body, and never stored — the cookie carries auth from here on.
+  async function submitLogin() {
+    var value = el("token").value.trim();
+    if (!value) { el("modal-err").textContent = "Enter a token"; return; }
+    el("modal-err").textContent = "";
+    try {
+      var res = await fetch("/admin/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ token: value }),
+      });
+      if (!res.ok) { el("modal-err").textContent = "Invalid token"; return; }
+      closeModal();
+      await load();
+    } catch (e) { el("modal-err").textContent = String(e); }
+  }
+
+  async function signout() {
+    try { await api("/admin/logout", { method: "POST" }); } catch (e) { /* ignore */ }
+    showSignedOut("");
+  }
+
+  // One button toggles between opening the sign-in modal and logging out.
+  el("authbtn").onclick = function () { if (live) signout(); else openModal(); };
+  el("submit").onclick = submitLogin;
+  el("cancel").onclick = closeModal;
+  el("token").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") submitLogin();
+    else if (e.key === "Escape") closeModal();
+  });
+  // Click outside the dialog (on the backdrop) dismisses it.
+  el("modal").addEventListener("click", function (e) { if (e.target === el("modal")) closeModal(); });
+
+  setLoggedIn(false); // render the Login icon+label before the first probe
+  // Resume an existing session if the httpOnly cookie is still valid (a 401 just
+  // leaves the Login button showing). Poll only while signed in.
+  load();
+  setInterval(function () { if (live) load(); }, 3000);
 })();
 </script>
 </body>
