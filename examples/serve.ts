@@ -89,7 +89,9 @@ const log = withProgressCounter(consoleLogger);
 const activity = new ActivityRegistry();
 const { client } = createClioClient(config);
 const db = await openArchiveDatabase(config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {});
+console.log(`Connecting to Clio: ${config.clio.endpoint}`);
 await client.connect();
+console.log("Connected.");
 
 // Issuances whose per-transaction deltas the backfill, tail, and gap heal derive
 // as transactions land — refreshed whenever an issuance is registered, so
