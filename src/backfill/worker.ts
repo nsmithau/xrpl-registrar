@@ -6,7 +6,7 @@ import {
   completeJob,
   type BackfillJob,
 } from "../db/repositories/backfillJobs.js";
-import { insertTransactionRows, type IngestTransaction } from "../db/repositories/transactions.js";
+import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 
@@ -94,13 +94,13 @@ export class BackfillWorker {
         limit: this.#pageLimit,
       })) {
         const isFinal = page.marker === undefined;
+        const mapped = page.entries.map((entry) => this.#mapEntry(entry, job.address, page.provenance));
+        for (const m of mapped) if (m.ledgerIndex > maxLedger) maxLedger = m.ledgerIndex;
         await this.#db.transaction(async (t) => {
-          for (const entry of page.entries) {
-            const mapped = this.#mapEntry(entry, job.address, page.provenance);
-            await insertTransactionRows(t, mapped);
-            await this.#deriveDeltas(t, mapped.hash, mapped.metaBlob);
-            if (mapped.ledgerIndex > maxLedger) maxLedger = mapped.ledgerIndex;
-          }
+          // Batch the page's rows (one multi-row statement per table), then derive
+          // deltas per transaction (the rows exist, so the delta FK is satisfied).
+          await insertTransactionRowsMany(t, mapped);
+          for (const m of mapped) await this.#deriveDeltas(t, m.hash, m.metaBlob);
           await checkpointJob(t, job.id, page.marker, page.entries.length);
           if (isFinal) {
             await completeJob(t, job.id);

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
-import { TransactionRepository } from "../../src/db/repositories/transactions.js";
+import {
+  TransactionRepository,
+  insertTransactionRowsMany,
+  type IngestTransaction,
+} from "../../src/db/repositories/transactions.js";
 
 const SAMPLE = {
   hash: "F00D",
@@ -75,5 +79,59 @@ describe("TransactionRepository", () => {
       ["rAlice"],
     );
     expect(Number(rows[0]!.first_seen_ledger)).toBe(50);
+  });
+});
+
+describe("insertTransactionRowsMany (batch)", () => {
+  let db: Database;
+
+  const tx = (hash: string, ledger: number, accounts: string[]): IngestTransaction => ({
+    hash,
+    ledgerIndex: ledger,
+    txType: "Payment",
+    mptIssuanceId: null,
+    txBlob: new Uint8Array([1]),
+    metaBlob: new Uint8Array([2]),
+    provenance: { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" },
+    accounts,
+  });
+
+  const count = async (table: string): Promise<number> =>
+    Number((await db.query<{ n: number | string }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!.n);
+
+  beforeEach(async () => {
+    db = await openArchiveDatabase();
+  });
+  afterEach(async () => {
+    await db.close();
+  });
+
+  it("batch-inserts transactions, accounts, and links equivalently to the single-row path", async () => {
+    await db.transaction((t) =>
+      insertTransactionRowsMany(t, [tx("T1", 100, ["rA", "rB"]), tx("T2", 90, ["rB", "rC"])]),
+    );
+
+    expect(await count("transactions")).toBe(2);
+    expect(await count("account_transactions")).toBe(4); // T1→rA,rB ; T2→rB,rC
+    expect(await count("accounts")).toBe(3); // rA, rB, rC
+    const { rows } = await db.query<{ first_seen_ledger: number | string }>(
+      "SELECT first_seen_ledger FROM accounts WHERE address = 'rB'",
+    );
+    expect(Number(rows[0]!.first_seen_ledger)).toBe(90); // earliest across the batch
+  });
+
+  it("dedupes within a batch and is idempotent across batches", async () => {
+    await db.transaction((t) =>
+      insertTransactionRowsMany(t, [tx("T1", 100, ["rA"]), tx("T1", 100, ["rA"])]), // dup in one batch
+    );
+    await db.transaction((t) => insertTransactionRowsMany(t, [tx("T1", 100, ["rA"])])); // and again
+
+    expect(await count("transactions")).toBe(1);
+    expect(await count("account_transactions")).toBe(1);
+  });
+
+  it("is a no-op for an empty batch", async () => {
+    await db.transaction((t) => insertTransactionRowsMany(t, []));
+    expect(await count("transactions")).toBe(0);
   });
 });

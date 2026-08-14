@@ -3,7 +3,7 @@ import { decode, hashes } from "xrpl";
 import type { Provenance } from "../clio/types.js";
 import type { Database, Queryable } from "../db/database.js";
 import { asString } from "../discovery/fields.js";
-import { insertTransactionRows, type IngestTransaction } from "../db/repositories/transactions.js";
+import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 import { hexToBytes } from "../util/hex.js";
@@ -117,8 +117,8 @@ export async function backfillGap(
     if (rows.length === 0) continue;
 
     await db.transaction(async (t) => {
+      await insertTransactionRowsMany(t, rows);
       for (const row of rows) {
-        await insertTransactionRows(t, row);
         await deriveDeltas(t, row.hash, row.metaBlob);
         count += 1;
       }

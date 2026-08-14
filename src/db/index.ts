@@ -22,7 +22,7 @@ export {
   AccountRepository,
   type AccountIssuanceRow,
 } from "./repositories/accounts.js";
-export { insertTransactionRows } from "./repositories/transactions.js";
+export { insertTransactionRows, insertTransactionRowsMany } from "./repositories/transactions.js";
 export {
   BackfillJobRepository,
   checkpointJob,
