@@ -38,8 +38,9 @@ import {
 
 const MPT = (process.env.MPT_ISSUANCE_ID ?? "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1").toUpperCase();
 const PORT = Number(process.env.PORT ?? 51234);
-// How often to re-scan tracked issuances for new holders (0 disables).
-const REDISCOVERY_INTERVAL_MS = Number(process.env.REDISCOVERY_INTERVAL_MS ?? 15 * 60 * 1000);
+// Safety-net full re-scan interval (0 disables). Streaming discovery is primary;
+// this only backstops holders missed during a tail gap. Default 1 hour.
+const REDISCOVERY_INTERVAL_MS = Number(process.env.REDISCOVERY_INTERVAL_MS ?? 60 * 60 * 1000);
 
 const config = loadConfig();
 // Tracks in-flight backfill/discovery so the dashboard can show live indicators.

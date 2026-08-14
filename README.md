@@ -131,7 +131,7 @@ All configuration is read from the environment. Copy [`.env.example`](.env.examp
 | `ADMIN_TOKEN` | no | — | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly. |
 | `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
 | `PORT` | no | `51234` | Port for the public read API (used by `pnpm serve`). |
-| `REDISCOVERY_INTERVAL_MS` | no | `900000` | Safety-net full re-scan interval. New holders are discovered live from the tail (via the issuer subscription), so this is now a backstop only — keep it long, or `0` to disable. |
+| `REDISCOVERY_INTERVAL_MS` | no | `3600000` | Safety-net full re-scan interval (1 h). New holders are discovered live from the tail (via the issuer subscription), so this only backstops a holder missed during a tail gap. `0` disables. |
 | `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
 | `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
 | `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
