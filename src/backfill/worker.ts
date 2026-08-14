@@ -13,6 +13,9 @@ import { nullLogger, type Logger } from "../logging/logger.js";
 import { mapBinaryEntry } from "./mapEntry.js";
 import { accountTxPages, type BinaryTxEntry } from "./pages.js";
 
+/** Emit a running progress counter at most every this many transactions. */
+const BACKFILL_PROGRESS_EVERY = 1000;
+
 export interface BackfillWorkerOptions {
   readonly client: ClioReader;
   readonly db: Database;
@@ -50,6 +53,10 @@ export class BackfillWorker {
   readonly #concurrency: number;
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
   readonly jobs: BackfillJobRepository;
+  /** Session-wide running total of transactions ingested, for the throttled
+   * progress counter (shared across concurrently-backfilled accounts). */
+  #ingestedTotal = 0;
+  #lastProgressAt = 0;
 
   constructor(options: BackfillWorkerOptions) {
     this.#client = options.client;
@@ -104,11 +111,13 @@ export class BackfillWorker {
             );
           }
         });
-        this.#logger.info("backfill page", {
-          account: job.address,
-          ingested: page.entries.length,
-          done: isFinal,
-        });
+        // A single running counter across all accounts, throttled — not a line
+        // per account or page.
+        this.#ingestedTotal += page.entries.length;
+        if (this.#ingestedTotal - this.#lastProgressAt >= BACKFILL_PROGRESS_EVERY) {
+          this.#lastProgressAt = this.#ingestedTotal;
+          this.#logger.info("backfill progress", { tx: this.#ingestedTotal });
+        }
       }
     } catch (err) {
       await this.jobs.fail(job.id);

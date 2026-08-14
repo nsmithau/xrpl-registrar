@@ -37,7 +37,7 @@ describe("backfillGap", () => {
     expect(requests.map((r) => r.account).sort()).toEqual(["rA", "rB"]);
   });
 
-  it("logs start, per-account progress, and completion so a heal is never silent", async () => {
+  it("logs a start and completion line, not a line per account, so a heal is never silent", async () => {
     const client = fakeReader(() => ({ transactions: [], marker: undefined }));
     const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
     const logger = {
@@ -50,8 +50,9 @@ describe("backfillGap", () => {
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
-    expect(messages.filter((m) => m === "gap heal progress")).toHaveLength(2); // one per account
     expect(messages).toContain("gap heal finished");
+    // Progress is a throttled running counter, never one line per account.
+    expect(messages.filter((m) => m === "gap heal progress")).toHaveLength(0);
     const finished = logs.find((l) => l.message === "gap heal finished");
     expect(finished?.meta?.["ingested"]).toBe(0);
     expect(finished?.meta).toHaveProperty("elapsedMs");

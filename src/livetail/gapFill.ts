@@ -7,6 +7,9 @@ import { nullLogger, type Logger } from "../logging/logger.js";
 
 import type { LedgerRange } from "./types.js";
 
+/** Emit a running progress counter at most every this many transactions. */
+const HEAL_PROGRESS_EVERY = 1000;
+
 /**
  * Heal a detected gap by re-fetching a bounded ledger range for the in-scope
  * accounts and ingesting it. Reuses the backfill pager and idempotent ingest,
@@ -14,8 +17,8 @@ import type { LedgerRange } from "./types.js";
  * transactions ingested (including no-op re-inserts).
  *
  * A gap heal can take a while (one paged `account_tx` sweep per account), during
- * which the live tail is blocked, so it logs when it starts, as each account
- * finishes, and on completion — otherwise a large heal looks like a stall.
+ * which the live tail is blocked, so it logs a start line, a throttled running
+ * counter, and a completion line — otherwise a large heal looks like a stall.
  */
 export async function backfillGap(
   client: ClioReader,
@@ -31,9 +34,8 @@ export async function backfillGap(
     accounts: accounts.length,
   });
   let count = 0;
-  let done = 0;
+  let lastLogged = 0;
   for (const account of accounts) {
-    let acctCount = 0;
     for await (const page of accountTxPages(client, {
       account,
       fromLedger: range.fromLedger,
@@ -44,12 +46,14 @@ export async function backfillGap(
         for (const entry of page.entries) {
           await insertTransactionRows(t, mapBinaryEntry(entry, account, page.provenance));
           count += 1;
-          acctCount += 1;
         }
       });
+      // A single running counter, throttled — not a line per account or page.
+      if (count - lastLogged >= HEAL_PROGRESS_EVERY) {
+        lastLogged = count;
+        logger.info("gap heal progress", { ingested: count });
+      }
     }
-    done += 1;
-    logger.info("gap heal progress", { account, ingested: acctCount, accounts: `${done}/${accounts.length}` });
   }
   logger.info("gap heal finished", {
     fromLedger: range.fromLedger,
