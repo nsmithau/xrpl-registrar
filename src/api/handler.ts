@@ -116,14 +116,13 @@ export class ArchiveApi {
   }
 
   async #local(result: Record<string, unknown>): Promise<ApiResponse> {
-    return { result, warnings: localWarnings(await this.#scope.summarize()), forwarded: false };
+    return { result, warnings: localWarnings(), forwarded: false };
   }
 
   async #localFrom(mr: MethodResult): Promise<ApiResponse> {
-    const warnings = localWarnings(await this.#scope.summarize());
     return {
       result: mr.result,
-      warnings: [...warnings, ...(mr.extraWarnings ?? [])],
+      warnings: [...localWarnings(), ...(mr.extraWarnings ?? [])],
       forwarded: false,
     };
   }

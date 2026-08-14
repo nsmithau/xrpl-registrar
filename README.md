@@ -89,7 +89,7 @@ The account set is **append-only**: accounts that ever held the token are never 
 | Node state | `server_info`, `fee`, `ledger` | Forwarded to a configured upstream. |
 | Submission | `submit`, `submit_multisigned` | Forwarded. |
 
-Every archive response carries Clio's `2001` warning plus a filtered-archive warning describing the tracked scope.
+Every archive response carries Clio's `2001` warning plus a filtered-archive warning (id `65001`) flagging that absence may mean out-of-scope rather than non-existent. The warning is a compact marker — the full tracked scope is returned only where it is actionable, in the `notInArchive` error for an out-of-scope request.
 
 ```bash
 # Current holders of an MPT (HTTP JSON-RPC, like a Clio server)

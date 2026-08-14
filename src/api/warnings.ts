@@ -1,7 +1,5 @@
 import type { ClioWarning } from "../clio/types.js";
 
-import type { ArchiveScopeSummary } from "./types.js";
-
 /**
  * Clio's own warning, emitted unchanged. Clients that branch on Clio behaviour
  * must take the same path against us, so we keep the id and message verbatim.
@@ -23,14 +21,18 @@ export const FILTERED_ARCHIVE_WARNING_ID = 65001;
  * and is NOT archive-sourced" — no completeness or provenance guarantee. */
 export const FORWARDED_NOT_ARCHIVE_WARNING_ID = 65002;
 
-export function filteredArchiveWarning(scope: ArchiveScopeSummary): ClioWarning {
-  return {
-    id: FILTERED_ARCHIVE_WARNING_ID,
-    message:
-      "This is a filtered XRPL archive: it serves only accounts in scope for its tracked issuances. Absence of data may mean out-of-scope, not non-existent.",
-    details: { ...scope },
-  };
-}
+/**
+ * Attached to every archive response. Deliberately carries no `details`: the
+ * id + message are the honest contract (absence may mean out-of-scope, not
+ * non-existent). The full tracked scope is not echoed on every read — a client
+ * that needs it gets it exactly where it is actionable, in the `notInArchive`
+ * error returned when a request actually falls out of scope.
+ */
+export const FILTERED_ARCHIVE_WARNING: ClioWarning = {
+  id: FILTERED_ARCHIVE_WARNING_ID,
+  message:
+    "This is a filtered XRPL archive: it serves only accounts in scope for its tracked issuances. Absence of data may mean out-of-scope, not non-existent.",
+};
 
 /** Provisional warning id for "the requested ledger range exceeds this
  * account's guaranteed-complete coverage". */
@@ -57,6 +59,6 @@ export function forwardedNotArchiveWarning(): ClioWarning {
 }
 
 /** Warnings for a response served locally from the archive. */
-export function localWarnings(scope: ArchiveScopeSummary): ClioWarning[] {
-  return [CLIO_WARNING, filteredArchiveWarning(scope)];
+export function localWarnings(): ClioWarning[] {
+  return [CLIO_WARNING, FILTERED_ARCHIVE_WARNING];
 }
