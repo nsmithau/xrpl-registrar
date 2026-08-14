@@ -243,7 +243,7 @@
     },
     {
       "name": "Reporting extensions (archive_*)",
-      "description": "Namespaced reporting methods unique to this tool — Clio has no equivalent. Served from the public read API (default 51234) over HTTP JSON-RPC. Balances/deltas are computed exactly (integer for MPT, decimal for IOU). `api_version: 2` is required. Identify the issuance by `mpt_issuance_id`, or by `currency` + `issuer` for an IOU.",
+      "description": "Namespaced reporting methods unique to this tool — Clio has no equivalent. Served from the public read API (default 51234) over HTTP JSON-RPC. Balances/deltas are computed exactly (integer for MPT, decimal for IOU). `api_version: 2` is required. Identify the issuance by `mpt_issuance_id`, or by `currency` + `issuer` for an IOU. Identify the issuance by mpt_issuance_id, by currency + issuer (IOU), or by the archive's local issuance_id (uniform across MPT and IOU; instance-local, so prefer the ledger-native identifiers for anything that must be portable).",
       "auth": {
         "type": "noauth"
       },
@@ -449,6 +449,135 @@
               ]
             },
             "description": "Net delta for one account over a ledger range."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_balance_at — by issuance_id",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"issuance_id\": \"{{issuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Identify the issuance by its local numeric id (as shown by the admin API/dashboard) — the same request shape for MPT and IOU. issuance_id is instance-local; use mpt_issuance_id or currency+issuer for portable/reproducible queries."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_balance_at — IOU (currency + issuer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "An IOU holder's balance as of a ledger, identified by currency + issuer. Currency accepts the readable code (USD, RLUSD) or the 40-hex form."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_deltas — IOU (currency + issuer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Net IOU balance change per account over a ledger range, identified by currency + issuer."
           },
           "event": [
             {

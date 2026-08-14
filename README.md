@@ -103,6 +103,17 @@ curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
   -d '{"method":"archive_balance_at","params":[{"mpt_issuance_id":"<hex>","account":"r...","date":"2026-03-01T00:00:00Z","api_version":2}]}'
 ```
 
+Both reporting methods work for MPT **and** IOU issuances. Identify the issuance in any of three ways: by `mpt_issuance_id`, by `currency` + `issuer` (IOU), or by the archive's local `issuance_id` (the numeric id shown by the admin API/dashboard — the same request shape for either kind). `issuance_id` is instance-local and not portable across archive instances, so prefer the ledger-native identifiers for anything that must be reproducible.
+
+```bash
+# Same query by currency + issuer (IOU) …
+curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
+  -d '{"method":"archive_balance_at","params":[{"currency":"RLUSD","issuer":"r...","account":"r...","ledger_index":20000000,"api_version":2}]}'
+# … or by the local issuance id (uniform across kinds)
+curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
+  -d '{"method":"archive_balance_at","params":[{"issuance_id":1,"account":"r...","ledger_index":20000000,"api_version":2}]}'
+```
+
 `archive_balance_at` accepts `ledger_index` or `date`; `archive_deltas` accepts `from_ledger`/`to_ledger` or `from_time`/`to_time`.
 
 A [Postman collection](postman/) covering the Admin API and the `archive_*` reporting extensions ships under [`postman/`](postman/README.md) — import it, set `adminToken` and an issuance, and register/query the archive from Postman as you would a Clio server.

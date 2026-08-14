@@ -23,7 +23,27 @@ function asNum(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** Parse an `issuance_id` sent as a JSON number or a numeric string. */
+function asIssuanceId(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+  return undefined;
+}
+
 async function resolveIssuance(db: Database, req: ApiRequest): Promise<ResolvedIssuance | null> {
+  // An explicit `issuance_id` (the archive's local numeric id, as shown by the
+  // admin API/dashboard) names either kind uniformly. It is instance-local — not
+  // portable across archive instances — so the ledger-native identifiers below
+  // remain the canonical, reproducible way to name an issuance.
+  const issuanceId = asIssuanceId(req.issuance_id);
+  if (issuanceId !== undefined) {
+    const { rows } = await db.query<{ id: number | string; kind: "mpt" | "iou" }>(
+      "SELECT id, kind FROM issuances WHERE id = $1",
+      [issuanceId],
+    );
+    return rows.length ? { id: Number(rows[0]!.id), kind: rows[0]!.kind } : null;
+  }
+
   const mpt = typeof req.mpt_issuance_id === "string" ? req.mpt_issuance_id : undefined;
   if (mpt) {
     const { rows } = await db.query<{ id: number | string }>(

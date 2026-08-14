@@ -14,11 +14,13 @@ const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:0
 describe("reporting extensions", () => {
   let db: Database;
   let api: ArchiveApi;
+  let issuanceId: number;
 
   beforeEach(async () => {
     db = await openArchiveDatabase();
     api = new ArchiveApi({ db });
     const iss = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
+    issuanceId = iss.id;
     await new AccountRepository(db).recordDiscovered(iss.id, [
       { address: "rA", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
     ]);
@@ -71,6 +73,21 @@ describe("reporting extensions", () => {
     const res = await api.handle({ command: "archive_deltas", mpt_issuance_id: MPT, from_ledger: 150, to_ledger: 300, api_version: 2 });
     expect(res.result.status).toBe("success");
     expect(res.result.deltas).toEqual([{ account: "rA", delta: "25" }]); // only T2 in range
+  });
+
+  it("resolves the issuance by its local issuance_id (uniform across kinds)", async () => {
+    // Same result as identifying by mpt_issuance_id, via the numeric id.
+    const bal = await api.handle({ command: "archive_balance_at", issuance_id: issuanceId, account: "rA", ledger_index: 250, api_version: 2 });
+    expect(bal.result.status).toBe("success");
+    expect(bal.result.balance).toBe("35");
+
+    // A numeric string is accepted too (JSON clients may send it either way).
+    const asStr = await api.handle({ command: "archive_deltas", issuance_id: String(issuanceId), from_ledger: 150, to_ledger: 300, api_version: 2 });
+    expect(asStr.result.deltas).toEqual([{ account: "rA", delta: "25" }]);
+
+    // An unknown id fails closed.
+    const miss = await api.handle({ command: "archive_balance_at", issuance_id: 9999, account: "rA", ledger_index: 1, api_version: 2 });
+    expect(miss.result.error).toBe("notInArchive");
   });
 
   it("fails closed for an unknown issuance and validates params", async () => {
