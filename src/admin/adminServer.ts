@@ -183,6 +183,7 @@ export class AdminServer {
           issuances: await this.#api.listIssuances(),
           latestLedger: await this.#api.latestLedgerSeen(),
           activity: this.#api.activitySnapshot(),
+          backfillProgress: await this.#api.backfillProgress(),
         });
       }
       if (req.method === "GET" && id !== undefined) {

@@ -286,7 +286,11 @@ export const DASHBOARD_HTML = `<!doctype html>
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
       var act = data.activity || {};
-      renderPill("act-backfill", act.backfill, "backfilling\\u2026", "backfill idle");
+      var bp = data.backfillProgress;
+      var backfillLabel = bp && typeof bp.total === "number"
+        ? "backfilling (" + bp.done + "/" + bp.total + ")"
+        : "backfilling\\u2026";
+      renderPill("act-backfill", act.backfill, backfillLabel, "backfill idle");
       renderPill("act-discovery", act.discovery, "discovering\\u2026", "discovery idle");
       var led = el("ledger");
       if (typeof data.latestLedger === "number") {

@@ -106,6 +106,21 @@ export class AdminApi {
     return this.#issuances.list();
   }
 
+  /** Job progress for whatever issuances are being backfilled right now
+   * (completed+failed / total, across issuances with in-flight jobs), or null
+   * when nothing is backfilling — for the dashboard's live progress counter. */
+  async backfillProgress(): Promise<{ done: number; total: number } | null> {
+    const { rows } = await this.#db.query<{ done: number | string; total: number | string }>(
+      `SELECT count(*) FILTER (WHERE status IN ('completed','failed'))::int AS done,
+              count(*)::int AS total
+       FROM backfill_job
+       WHERE issuance_id IN (SELECT issuance_id FROM backfill_job WHERE status IN ('pending','running'))`,
+    );
+    const total = Number(rows[0]?.total ?? 0);
+    if (total === 0) return null;
+    return { done: Number(rows[0]?.done ?? 0), total };
+  }
+
   /** The latest ledger the archive has observed (max recorded close time) —
    * i.e. where the live subscription currently is. Null before any is seen. */
   async latestLedgerSeen(): Promise<number | null> {

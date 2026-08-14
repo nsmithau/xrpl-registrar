@@ -86,6 +86,20 @@ describe("AdminApi", () => {
     expect((await api.getIssuance(iss2.id))!.coverage).toBeNull();
   });
 
+  it("reports backfill job progress only while an issuance is backfilling", async () => {
+    expect(await api.backfillProgress()).toBeNull(); // nothing enqueued
+
+    const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_P" });
+    await db.query("INSERT INTO accounts (address) VALUES ('rA'),('rB'),('rC')");
+    await db.query("INSERT INTO backfill_job (address, issuance_id, status) VALUES ($1,$2,'completed'),($3,$2,'running'),($4,$2,'pending')", ["rA", iss.id, "rB", "rC"]);
+    // One issuance with in-flight (pending/running) jobs → 1 of 3 done.
+    expect(await api.backfillProgress()).toEqual({ done: 1, total: 3 });
+
+    // All jobs finished → no in-flight issuance → null (counter hidden).
+    await db.query("UPDATE backfill_job SET status = 'completed' WHERE issuance_id = $1", [iss.id]);
+    expect(await api.backfillProgress()).toBeNull();
+  });
+
   it("reports the latest ledger the archive has observed", async () => {
     expect(await api.latestLedgerSeen()).toBeNull();
     await new LedgerTimeRepository(db).recordMany([
