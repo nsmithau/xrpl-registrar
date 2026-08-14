@@ -2,8 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { BinaryTxEntry } from "../../src/backfill/pages.js";
+import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
 import { fakeReader } from "../discovery/fakes.js";
+
+const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
 describe("backfillGap", () => {
   let db: Database;
@@ -46,7 +50,7 @@ describe("backfillGap", () => {
       error: () => {},
     };
 
-    await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 800 }, logger);
+    await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 800 }, { logger });
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
@@ -56,5 +60,39 @@ describe("backfillGap", () => {
     const finished = logs.find((l) => l.message === "gap heal finished");
     expect(finished?.meta?.["ingested"]).toBe(0);
     expect(finished?.meta).toHaveProperty("elapsedMs");
+  });
+
+  it("runs onEntry per healed transaction (streaming discovery over the gap)", async () => {
+    // Two binary entries per account; a stub mapEntry avoids needing real blobs.
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command !== "account_tx") return {};
+      return {
+        transactions: [
+          { tx_blob: `${String(req.account)}-1`, meta_blob: "aa", ledger_index: 600 },
+          { tx_blob: `${String(req.account)}-2`, meta_blob: "bb", ledger_index: 601 },
+        ],
+        marker: undefined,
+      };
+    });
+    // Map an entry to a row using its tx_blob as the hash and meta_blob as bytes.
+    const mapEntry = (entry: BinaryTxEntry, account: string): IngestTransaction => ({
+      hash: entry.tx_blob,
+      ledgerIndex: entry.ledger_index,
+      txType: "Payment",
+      mptIssuanceId: null,
+      txBlob: new Uint8Array(),
+      metaBlob: new TextEncoder().encode(entry.meta_blob),
+      provenance: PROV,
+      accounts: [account],
+    });
+
+    const seen: string[] = [];
+    const n = await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 800 }, {
+      mapEntry,
+      onEntry: (metaBlob) => seen.push(new TextDecoder().decode(metaBlob)),
+    });
+
+    expect(n).toBe(2);
+    expect(seen).toEqual(["aa", "bb"]); // once per healed transaction, post-commit
   });
 });

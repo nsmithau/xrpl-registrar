@@ -165,10 +165,13 @@ if (subs.length > 0) {
       // Heal against the current subscription set (holders + issuers), which the
       // issuer entry makes cover new-holder activity missed during the gap.
       const healSet = await subscriptionSet();
-      await activity.track(
-        "backfill",
-        `healing ${range.fromLedger}–${range.toLedger}`,
-        () => backfillGap(client, db, healSet, range, consoleLogger, deriveDeltas),
+      await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
+        backfillGap(client, db, healSet, range, {
+          logger: consoleLogger,
+          deriveDeltas,
+          // Discover holders that first appeared during the gap, same as the tail.
+          onEntry: (metaBlob) => onStreamTransaction(metaBlob),
+        }),
       );
     },
   });
