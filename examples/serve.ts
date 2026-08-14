@@ -48,7 +48,7 @@ const existing = await db.query("SELECT id FROM issuances WHERE mpt_issuance_id 
 if (existing.rows.length === 0) {
   console.log(`Populating archive for MPT ${MPT}…`);
   const res = await activity.track("discovery", `discovering ${MPT}`, () =>
-    discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }),
+    discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }, { logger: consoleLogger }),
   );
   const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
   await new AccountRepository(db).recordDiscovered(issuance.id, res.accounts);

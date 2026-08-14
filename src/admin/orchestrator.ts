@@ -56,7 +56,7 @@ export async function ingestIssuance(
 ): Promise<IngestSummary> {
   const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
   const result = await activity.track("discovery", `discovering ${label ?? issuance.id}`, () =>
-    discover(client, targetFor(issuance)),
+    discover(client, targetFor(issuance), { logger }),
   );
   await new AccountRepository(db).recordDiscovered(issuance.id, result.accounts);
 

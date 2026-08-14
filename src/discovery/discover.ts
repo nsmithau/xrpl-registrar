@@ -1,3 +1,4 @@
+import { nullLogger, type Logger } from "../logging/logger.js";
 import { decodeMptIssuer } from "../xrpl/mpt.js";
 
 import { currentTrustlineHolders } from "./accountLines.js";
@@ -19,6 +20,9 @@ export interface DiscoverOptions {
    * against the historical set as a cross-check. Default true.
    */
   readonly crossCheck?: boolean;
+  /** Logs a `discovery started` / `discovery finished` line around the scan.
+   * Defaults to silent. */
+  readonly logger?: Logger;
 }
 
 function sortByAddress(accounts: DiscoveredAccount[]): DiscoveredAccount[] {
@@ -42,6 +46,28 @@ export async function discover(
   client: ClioReader,
   target: DiscoveryTarget,
   options: DiscoverOptions = {},
+): Promise<DiscoveryResult> {
+  const logger = options.logger ?? nullLogger;
+  const label = target.kind === "iou" ? `${target.currency}/${target.issuer}` : target.mptIssuanceId;
+  const startedMs = Date.now();
+  logger.info("discovery started", { kind: target.kind, target: label });
+
+  const result = await discoverAccounts(client, target, options);
+
+  logger.info("discovery finished", {
+    kind: target.kind,
+    target: label,
+    strategy: result.strategy,
+    accounts: result.accounts.length,
+    elapsedMs: Date.now() - startedMs,
+  });
+  return result;
+}
+
+async function discoverAccounts(
+  client: ClioReader,
+  target: DiscoveryTarget,
+  options: DiscoverOptions,
 ): Promise<DiscoveryResult> {
   if (target.kind === "iou") {
     const strategy = resolveStrategy(target);

@@ -68,4 +68,24 @@ describe("IOU discovery cross-check", () => {
     expect(res.crossCheck).toBeUndefined();
     expect(res.accounts.map((a) => a.address)).toEqual(["rA"]);
   });
+
+  it("logs a start and finish line when a logger is supplied", async () => {
+    const client = ledgerFake(["rA", "rB"], ["rA", "rB"]);
+    const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const logger = {
+      info: (message: string, meta?: Record<string, unknown>) => logs.push({ message, ...(meta ? { meta } : {}) }),
+      warn: () => {},
+      error: () => {},
+    };
+
+    await discover(client, { kind: "iou", currency: "RLUSD", issuer: ISSUER }, { logger });
+
+    const messages = logs.map((l) => l.message);
+    expect(messages).toContain("discovery started");
+    expect(messages).toContain("discovery finished");
+    const finished = logs.find((l) => l.message === "discovery finished");
+    expect(finished?.meta?.["strategy"]).toBe("trustline");
+    expect(finished?.meta?.["accounts"]).toBe(2);
+    expect(finished?.meta).toHaveProperty("elapsedMs");
+  });
 });
