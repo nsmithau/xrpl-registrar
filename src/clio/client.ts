@@ -97,6 +97,19 @@ export class ClioClient {
           attempt,
           maxRetries: this.#maxRetries,
         });
+        // If the socket dropped, actively re-establish it before retrying —
+        // otherwise every subsequent request throws on the dead client and the
+        // retries never recover (a wedged connection loops NotConnectedError
+        // forever). connect() is a no-op when already connected.
+        if (!this.#transport.isConnected()) {
+          try {
+            await this.#transport.connect();
+          } catch (reconnectErr) {
+            this.#logger.warn("clio reconnect failed; will retry after backoff", {
+              error: String(reconnectErr),
+            });
+          }
+        }
         // Fall through to the next iteration. The slot is released in `finally`
         // below, and the next `acquire()` blocks on the global cooldown the
         // penalty just set — that is the backoff.

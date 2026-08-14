@@ -4,7 +4,7 @@ import { ClioClient } from "../src/clio/client.js";
 import { ApiVersionError, ClioRequestError } from "../src/clio/errors.js";
 import { Governor } from "../src/clio/governor.js";
 
-import { FakeClock, FakeTransport, xrpldError, successTransport, tick } from "./helpers.js";
+import { FakeClock, FakeTransport, namedError, xrpldError, successTransport, tick } from "./helpers.js";
 
 describe("ClioClient api_version enforcement", () => {
   it("forces api_version 2 onto every outbound request", async () => {
@@ -128,5 +128,32 @@ describe("ClioClient retry and backoff", () => {
     expect(err.code).toBe("slowDown");
     expect(err.attempts).toBe(3); // initial + 2 retries
     expect(governor.stats().totalPenalties).toBe(3);
+  });
+
+  it("re-establishes a dropped socket before retrying, instead of looping on a dead client", async () => {
+    const clock = new FakeClock();
+    const governor = new Governor({ minBackoffMs: 100, maxBackoffMs: 100 }, clock);
+    // First call: the socket drops and the request fails with a connection error.
+    // A dead client would then throw NotConnectedError forever; we expect a reconnect.
+    const transport: FakeTransport = new FakeTransport((_req, i) => {
+      if (i === 0) {
+        transport.drop();
+        return Promise.reject(namedError("DisconnectedError"));
+      }
+      return Promise.resolve({ result: { ok: true }, status: "success" });
+    });
+    await transport.connect(); // start connected (connects = 1)
+    const client = new ClioClient({ governor, transport, maxRetries: 3 });
+
+    const p = client.request({ command: "tx" });
+    await tick();
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.isConnected()).toBe(true); // reconnected after the drop
+    expect(transport.connects).toBe(2); // initial + one reconnect
+
+    await clock.advance(100);
+    const res = await p;
+    expect(res.result).toEqual({ ok: true }); // recovered on the reconnected socket
+    expect(transport.calls).toHaveLength(2);
   });
 });

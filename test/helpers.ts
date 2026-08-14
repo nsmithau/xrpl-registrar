@@ -57,6 +57,8 @@ export type TransportHandler = (req: ClioRequest, callIndex: number) => Promise<
 export class FakeTransport implements ClioTransport {
   readonly endpoint: string;
   readonly calls: ClioRequest[] = [];
+  /** How many times connect() has been called (initial + reconnects). */
+  connects = 0;
   #connected = false;
   #handler: TransportHandler;
 
@@ -65,8 +67,14 @@ export class FakeTransport implements ClioTransport {
     this.endpoint = endpoint;
   }
 
+  /** Simulate the socket dropping (a later request would see it disconnected). */
+  drop(): void {
+    this.#connected = false;
+  }
+
   connect(): Promise<void> {
     this.#connected = true;
+    this.connects += 1;
     return Promise.resolve();
   }
 
