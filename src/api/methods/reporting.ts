@@ -1,5 +1,6 @@
 import type { Database } from "../../db/database.js";
 import { LedgerTimeRepository } from "../../db/repositories/ledgers.js";
+import { currencyToString } from "../../xrpl/currency.js";
 import { invalidParams, notInArchive } from "../errors.js";
 import type { ScopeRepository } from "../scope.js";
 import type { ApiRequest, MethodResult } from "../types.js";
@@ -34,9 +35,11 @@ async function resolveIssuance(db: Database, req: ApiRequest): Promise<ResolvedI
   const currency = typeof req.currency === "string" ? req.currency : undefined;
   const issuer = typeof req.issuer === "string" ? req.issuer : undefined;
   if (currency && issuer) {
+    // Match the normalisation applied at registration: accept the readable code
+    // or the 40-hex form, comparing against the stored readable code.
     const { rows } = await db.query<{ id: number | string }>(
       "SELECT id FROM issuances WHERE kind = 'iou' AND currency = $1 AND issuer_account = $2",
-      [currency, issuer],
+      [currencyToString(currency), issuer],
     );
     return rows.length ? { id: Number(rows[0]!.id), kind: "iou" } : null;
   }

@@ -70,6 +70,8 @@ curl -s http://127.0.0.1:51235/admin/issuances \
 
 Optional fields: `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) and `backfillFromLedger`.
 
+For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`RLUSD`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `RLUSD` and `524C555344…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
+
 ```
 GET   /admin/issuances            # list configured issuances
 GET   /admin/issuances/{id}       # status: accounts, backfill progress, coverage, last reconciliation

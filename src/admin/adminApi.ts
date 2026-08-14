@@ -5,6 +5,7 @@ import {
   type DiscoveryStrategy,
   type IssuanceRecord,
 } from "../db/repositories/issuances.js";
+import { normalizeCurrency } from "../xrpl/currency.js";
 
 import type { ActivityReport, ActivitySource } from "./activity.js";
 
@@ -88,7 +89,9 @@ export class AdminApi {
     }
     return this.#issuances.create({
       kind: "iou",
-      currency: input.currency,
+      // Accept the readable code or the 40-hex on-wire form; store the readable
+      // code the archive matches against, and reject a malformed one outright.
+      currency: normalizeCurrency(input.currency),
       issuerAccount: input.issuer,
       ...(input.discoveryStrategy ? { discoveryStrategy: input.discoveryStrategy } : {}),
       ...(input.backfillFromLedger !== undefined

@@ -21,3 +21,22 @@ export function currencyToString(code: string): string {
   }
   return code;
 }
+
+/**
+ * Normalise an operator-supplied IOU currency for storage.
+ *
+ * Accepts either the readable code (`RLUSD`, `USD`) or the 40-hex on-wire form
+ * (`524C55…`) and returns the readable code the archive compares ledger data
+ * against — so a pasted hex still matches. Throws on an empty, over-long, or
+ * reserved (`XRP`) code, so a bad registration fails loudly at the door instead
+ * of silently matching nothing during discovery.
+ */
+export function normalizeCurrency(input: string): string {
+  const code = currencyToString(input.trim());
+  if (code === "") throw new Error("currency is required");
+  if (code === "XRP") throw new Error("XRP is not an issuable IOU currency");
+  // Readable non-standard codes decode to at most 20 characters; anything
+  // longer is not a currency code (e.g. a mistyped issuance id).
+  if (code.length > 20) throw new Error(`currency '${code}' is not a valid currency code (max 20 characters)`);
+  return code;
+}

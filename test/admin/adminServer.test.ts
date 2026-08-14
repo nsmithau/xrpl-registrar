@@ -131,6 +131,16 @@ describe("AdminServer", () => {
     expect(idle.activity.backfill.running).toBe(false);
   });
 
+  it("rejects a malformed IOU currency with a 400 (not a 500)", async () => {
+    const res = await fetch(`${base}/admin/issuances`, {
+      method: "POST",
+      headers: auth({ "content-type": "application/json" }),
+      body: JSON.stringify({ kind: "iou", currency: "XRP", issuer: "rISS" }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toMatch(/XRP/);
+  });
+
   it("404s unknown ids and paths", async () => {
     expect((await fetch(`${base}/admin/issuances/9999`, { headers: auth() })).status).toBe(404);
     expect((await fetch(`${base}/admin/other`, { headers: auth() })).status).toBe(404);

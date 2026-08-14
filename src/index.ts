@@ -22,7 +22,7 @@ export * from "./server/index.js";
 export * from "./reconcile/index.js";
 export * from "./admin/index.js";
 export { decodeMptIssuer, mptSequence } from "./xrpl/mpt.js";
-export { currencyToString } from "./xrpl/currency.js";
+export { currencyToString, normalizeCurrency } from "./xrpl/currency.js";
 export { loadConfig, type AppConfig } from "./config/index.js";
 export { consoleLogger, nullLogger, type Logger } from "./logging/logger.js";
 

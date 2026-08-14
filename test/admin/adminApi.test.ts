@@ -27,6 +27,22 @@ describe("AdminApi", () => {
     expect((await api.listIssuances()).map((i) => i.kind)).toEqual(["mpt", "iou"]);
   });
 
+  it("normalizes an IOU currency at registration and rejects a malformed one", async () => {
+    // The 40-hex on-wire form of RLUSD is stored as the readable code.
+    const hex = await api.registerIssuance({
+      kind: "iou",
+      currency: "524C555344000000000000000000000000000000",
+      issuer: "rISS",
+    });
+    expect(hex.currency).toBe("RLUSD");
+    // A readable code is stored as-is.
+    const readable = await api.registerIssuance({ kind: "iou", currency: "RLUSD", issuer: "rISS2" });
+    expect(readable.currency).toBe("RLUSD");
+    // XRP and empty are rejected outright rather than silently matching nothing.
+    await expect(api.registerIssuance({ kind: "iou", currency: "XRP", issuer: "rISS3" })).rejects.toThrow(/XRP/);
+    await expect(api.registerIssuance({ kind: "iou", currency: "", issuer: "rISS4" })).rejects.toThrow(/required/);
+  });
+
   it("reports issuance status: accounts, backfill, coverage, reconciliation", async () => {
     const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A" });
     await new AccountRepository(db).recordDiscovered(iss.id, [
