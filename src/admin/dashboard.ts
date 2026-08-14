@@ -105,14 +105,16 @@ export const DASHBOARD_HTML = `<!doctype html>
   .muted { color: hsl(var(--muted-foreground)); }
   .bar { display: inline-block; height: 6px; border-radius: 3px; background: hsl(var(--muted)); width: 84px; vertical-align: middle; overflow: hidden; margin-right: 8px; }
   .bar > span { display: block; height: 100%; background: hsl(var(--primary)); border-radius: 3px; }
-  /* Right-aligned status group: activity indicators + the live ledger counter. */
-  #status { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-  .counter { display: none; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); }
+  /* Monitors: three separate bordered badges, left-aligned to match the table
+     below. The row shows only while signed in. */
+  #status { display: none; align-items: center; gap: 10px; }
+  #status.on { display: inline-flex; }
+  .counter { display: none; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--card)); }
   .counter.live { display: inline-flex; }
   .counter .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--success)); animation: pulse 2s infinite; }
   .counter .num { font-family: var(--font-mono); color: hsl(var(--foreground)); }
   /* Activity pills: dim + steady when idle, primary + pulsing when running. */
-  .pill { display: none; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); }
+  .pill { display: none; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; white-space: nowrap; color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--card)); }
   .pill.show { display: inline-flex; }
   .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--muted-foreground)); }
   .pill.active { color: hsl(var(--foreground)); }
@@ -147,12 +149,12 @@ export const DASHBOARD_HTML = `<!doctype html>
   <button id="authbtn" class="authbtn">Login</button>
 </header>
 <div id="auth">
-  <span id="err"></span>
   <span id="status">
     <span id="act-backfill" class="pill"></span>
     <span id="act-discovery" class="pill"></span>
     <span id="ledger" class="counter"></span>
   </span>
+  <span id="err"></span>
 </div>
 <div id="modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal">
@@ -258,6 +260,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     live = false;
     setLoggedIn(false);
     el("app").hidden = true;
+    el("status").classList.remove("on");
     el("err").textContent = msg || "";
     el("ledger").className = "counter";
     renderPill("act-backfill", null);
@@ -277,6 +280,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       live = true;
       setLoggedIn(true);
       el("app").hidden = false;
+      el("status").classList.add("on");
       var rows = el("rows"); rows.textContent = "";
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
