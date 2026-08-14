@@ -89,9 +89,33 @@ const log = withProgressCounter(consoleLogger);
 const activity = new ActivityRegistry();
 const { client } = createClioClient(config);
 const db = await openArchiveDatabase(config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {});
+// Startup guard: confirm the upstream is a full-history Clio. A partial-history
+// xrpld node or the wrong network would make the archive silently incomplete —
+// so surface server_info and warn loudly when it doesn't look like Clio.
+async function verifyEndpoint(): Promise<void> {
+  try {
+    const res = await client.request<{ info?: Record<string, unknown> }>({ command: "server_info" });
+    const info = res.result.info ?? {};
+    const clio = typeof info["clio_version"] === "string" ? info["clio_version"] : undefined;
+    const ledgers = typeof info["complete_ledgers"] === "string" ? info["complete_ledgers"] : "unknown";
+    const network = info["network_id"] ?? "?";
+    console.log(`  ${clio ? `Clio ${clio}` : "NOT a Clio server"} · ledgers ${ledgers} · network_id ${network}`);
+    if (!clio) {
+      console.warn(
+        `  ⚠  ${config.clio.endpoint} does not report as Clio (no clio_version in server_info).\n` +
+          `     It looks like an xrpld node — full history and Clio-only methods (e.g. mpt_holders)\n` +
+          `     are not guaranteed, so the archive may be silently incomplete. Point CLIO_ENDPOINT\n` +
+          `     at a full-history Clio, and confirm network_id matches the issuances you track.`,
+      );
+    }
+  } catch (err) {
+    console.warn(`  ⚠  could not verify the endpoint via server_info: ${String(err)}`);
+  }
+}
+
 console.log(`Connecting to Clio: ${config.clio.endpoint}`);
 await client.connect();
-console.log("Connected.");
+await verifyEndpoint();
 
 // Issuances whose per-transaction deltas the backfill, tail, and gap heal derive
 // as transactions land — refreshed whenever an issuance is registered, so
