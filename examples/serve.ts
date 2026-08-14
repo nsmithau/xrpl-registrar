@@ -45,7 +45,46 @@ const PORT = Number(process.env.PORT ?? 51234);
 // this only backstops holders missed during a tail gap. Default 1 hour.
 const REDISCOVERY_INTERVAL_MS = Number(process.env.REDISCOVERY_INTERVAL_MS ?? 60 * 60 * 1000);
 
+// Console logger that renders the high-frequency backfill/heal progress as a
+// single in-place counter on a TTY (dropped entirely when piped), while every
+// other structured log passes through unchanged.
+function withProgressCounter(base: typeof consoleLogger): typeof consoleLogger {
+  const tty = process.stderr.isTTY === true;
+  let counterOpen = false;
+  const endCounter = (): void => {
+    if (counterOpen) {
+      process.stderr.write("\n");
+      counterOpen = false;
+    }
+  };
+  const progress = (message: string, meta?: Record<string, unknown>): boolean => {
+    if (message !== "backfill progress" && message !== "gap heal progress") return false;
+    if (!tty) return true; // no line-per-1000-tx spam when piped to a file
+    const n = Number(meta?.["tx"] ?? meta?.["ingested"] ?? 0);
+    const label = message === "gap heal progress" ? "healing" : "backfilling";
+    process.stderr.write(`\r  ${label} ${n.toLocaleString()} tx`);
+    counterOpen = true;
+    return true;
+  };
+  return {
+    info: (message, meta) => {
+      if (progress(message, meta)) return;
+      endCounter();
+      base.info(message, meta);
+    },
+    warn: (message, meta) => {
+      endCounter();
+      base.warn(message, meta);
+    },
+    error: (message, meta) => {
+      endCounter();
+      base.error(message, meta);
+    },
+  };
+}
+
 const config = loadConfig();
+const log = withProgressCounter(consoleLogger);
 // Tracks in-flight backfill/discovery so the dashboard can show live indicators.
 const activity = new ActivityRegistry();
 const { client } = createClioClient(config);
@@ -69,7 +108,7 @@ if (MPT) {
   if (existing.rows.length === 0) {
     console.log(`Populating archive for MPT ${MPT}…`);
     const res = await activity.track("discovery", `discovering ${MPT}`, () =>
-      discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }, { logger: consoleLogger }),
+      discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }, { logger: log }),
     );
     const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
     await new AccountRepository(db).recordDiscovered(issuance.id, res.accounts);
@@ -91,7 +130,7 @@ if (MPT) {
 await refreshTracked();
 
 const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
-const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: consoleLogger });
+const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: log });
 const bound = await server.start();
 
 let tail: LiveTail | undefined;
@@ -137,7 +176,7 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
   await worker.enqueue(issuanceId, [holder], 0);
   await activity.track("backfill", `new holder ${holder}`, () => worker.runIssuance(issuanceId));
   if (tailSource) await tailSource.setAccounts(await subscriptionSet());
-  consoleLogger.info("new holder tracked from stream", { issuanceId, holder });
+  log.info("new holder tracked from stream", { issuanceId, holder });
 }
 function onStreamTransaction(metaBlob: Uint8Array): void {
   for (const { issuanceId, holder } of holdersInMetaBlob(metaBlob, tracked)) {
@@ -145,7 +184,7 @@ function onStreamTransaction(metaBlob: Uint8Array): void {
     if (inScope.has(key) || pendingHolders.has(key)) continue;
     pendingHolders.add(key);
     void trackNewHolder(issuanceId, holder)
-      .catch((err: unknown) => consoleLogger.error("track new holder failed", { holder, error: String(err) }))
+      .catch((err: unknown) => log.error("track new holder failed", { holder, error: String(err) }))
       .finally(() => pendingHolders.delete(key));
   }
 }
@@ -166,7 +205,7 @@ if (subs.length > 0) {
   tail = new LiveTail({
     db,
     source: tailSource,
-    logger: consoleLogger,
+    logger: log,
     deriveDeltas,
     onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
     ...(highWater !== undefined ? { startLedger: highWater } : {}),
@@ -176,7 +215,7 @@ if (subs.length > 0) {
       const healSet = await subscriptionSet();
       await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
         backfillGap(client, db, healSet, range, {
-          logger: consoleLogger,
+          logger: log,
           deriveDeltas,
           // Discover holders that first appeared during the gap, same as the tail.
           onEntry: (metaBlob) => onStreamTransaction(metaBlob),
@@ -197,7 +236,7 @@ async function rediscover(): Promise<void> {
   const issuances = await new IssuanceRepository(db).list();
   for (const issuance of issuances) {
     if (!issuance.enabled) continue;
-    await ingestIssuance(client, db, issuance, consoleLogger, activity);
+    await ingestIssuance(client, db, issuance, log, activity);
   }
   await refreshTracked();
   await seedInScope();
@@ -206,7 +245,7 @@ async function rediscover(): Promise<void> {
 if (REDISCOVERY_INTERVAL_MS > 0) {
   rediscoverTimer = setInterval(() => {
     void rediscover().catch((err: unknown) =>
-      consoleLogger.error("periodic re-discovery failed", { error: String(err) }),
+      log.error("periodic re-discovery failed", { error: String(err) }),
     );
   }, REDISCOVERY_INTERVAL_MS);
   console.log(`Re-discovery : safety-net re-scan every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (streaming is primary; REDISCOVERY_INTERVAL_MS=0 to disable)`);
@@ -229,9 +268,9 @@ if (config.admin.token) {
     token: config.admin.token,
     port: config.admin.port,
     host: "127.0.0.1",
-    logger: consoleLogger,
+    logger: log,
     onRegistered: (issuance) => {
-      ingestIssuance(client, db, issuance, consoleLogger, activity)
+      ingestIssuance(client, db, issuance, log, activity)
         .then(async () => {
           // Track the new issuance (for tail delta derivation + streaming
           // discovery), and bring its accounts and issuer into the subscription.
@@ -239,7 +278,7 @@ if (config.admin.token) {
           await seedInScope();
           if (tailSource) await tailSource.setAccounts(await subscriptionSet());
         })
-        .catch((err: unknown) => consoleLogger.error("background ingest failed", { error: String(err) }));
+        .catch((err: unknown) => log.error("background ingest failed", { error: String(err) }));
     },
   });
   const adminBound = await adminServer.start();
