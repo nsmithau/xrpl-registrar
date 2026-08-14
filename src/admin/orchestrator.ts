@@ -83,7 +83,7 @@ export async function ingestIssuance(
     result.accounts.map((a) => a.address),
     fromLedger,
   );
-  const { processed } = await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
+  const { processed, failed } = await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
     worker.runIssuance(issuance.id),
   );
 
@@ -98,6 +98,7 @@ export async function ingestIssuance(
     strategy: result.strategy,
     discovered: result.accounts.length,
     jobsProcessed: processed,
+    jobsFailed: failed,
     deltaRows,
   });
 

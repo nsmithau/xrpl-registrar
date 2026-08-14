@@ -170,6 +170,25 @@ describe("BackfillWorker", () => {
     expect(seen).toEqual(["E1", "E2", "E3", "E4"]);
   });
 
+  it("isolates a failing account: marks it failed and finishes the others", async () => {
+    await db.query("INSERT INTO accounts (address) VALUES ('rOK'),('rBAD') ON CONFLICT DO NOTHING");
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command !== "account_tx") return {};
+      if (req.account === "rBAD") throw new Error("simulated upstream failure");
+      return { transactions: [e("E1", 100)], marker: undefined };
+    });
+    const worker = new BackfillWorker({ client, db, mapEntry: idMap });
+    await worker.enqueue(issuanceId, ["rOK", "rBAD"], 0);
+
+    const { processed, failed } = await worker.runIssuance(issuanceId);
+
+    expect(processed).toBe(1); // rOK completed despite rBAD failing
+    expect(failed).toBe(1);
+    const jobs = await worker.jobs.listForIssuance(issuanceId);
+    const status = Object.fromEntries(jobs.map((j) => [j.address, j.status]));
+    expect(status).toMatchObject({ rOK: "completed", rBAD: "failed" });
+  });
+
   it("is idempotent when a completed job is re-run", async () => {
     const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 0);

@@ -125,14 +125,16 @@ export class BackfillJobRepository {
     return rows.length ? mapRow(rows[0]!) : null;
   }
 
-  /** Return interrupted (`running`) jobs to `pending` — call once at startup to
-   * reclaim jobs orphaned by a previous crash before claiming concurrently. */
+  /** Return interrupted (`running`, orphaned by a crash) and `failed` (a prior
+   * run) jobs to `pending`, so a run retries them. Called at the start of
+   * `runIssuance`: transient failures (e.g. an upstream drop) are picked up on
+   * the next backfill pass rather than staying failed forever. */
   async reclaimStale(issuanceId?: number): Promise<number> {
     const where = issuanceId === undefined ? "" : "AND issuance_id = $1";
     const params = issuanceId === undefined ? [] : [issuanceId];
     const { rows } = await this.#db.query<{ id: number | string }>(
       `UPDATE backfill_job SET status = 'pending', updated_at = now()
-       WHERE status = 'running' ${where} RETURNING id`,
+       WHERE status IN ('running', 'failed') ${where} RETURNING id`,
       params,
     );
     return rows.length;

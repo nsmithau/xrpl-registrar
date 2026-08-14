@@ -136,23 +136,39 @@ export class BackfillWorker {
 
   /**
    * Process every job for an issuance, backfilling up to `concurrency` accounts
-   * at once. First reclaims jobs left `running` by a prior crash, then runs
-   * concurrent claim→run loops that each atomically claim the next pending job.
-   * All loops share the one governed client, so total upstream load stays under
-   * the global concurrency cap regardless of `concurrency`.
+   * at once. First reclaims jobs left `running` (crash) or `failed` (a prior
+   * run) so they are retried, then runs concurrent claim→run loops that each
+   * atomically claim the next pending job. All loops share the one governed
+   * client, so total upstream load stays under the global concurrency cap.
+   *
+   * A single account's failure is **isolated**: the job is marked `failed` and
+   * the run continues with the others, so one transient upstream drop can't
+   * abort a whole multi-thousand-account backfill. Failed jobs are retried on a
+   * later run (they are reclaimed above). Returns how many jobs completed and
+   * how many failed this run.
    */
-  async runIssuance(issuanceId: number): Promise<{ processed: number }> {
+  async runIssuance(issuanceId: number): Promise<{ processed: number; failed: number }> {
     await this.jobs.reclaimStale(issuanceId);
     let processed = 0;
+    let failed = 0;
     const loop = async (): Promise<void> => {
       for (;;) {
         const job = await this.jobs.claim(issuanceId);
         if (!job) break;
-        await this.runJob(job);
-        processed += 1;
+        try {
+          await this.runJob(job);
+          processed += 1;
+        } catch (err) {
+          // runJob already marked the job failed; keep going with the others.
+          failed += 1;
+          this.#logger.warn("backfill job failed; continuing", {
+            account: job.address,
+            error: String(err),
+          });
+        }
       }
     };
     await Promise.all(Array.from({ length: this.#concurrency }, () => loop()));
-    return { processed };
+    return { processed, failed };
   }
 }

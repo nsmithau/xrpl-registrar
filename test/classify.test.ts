@@ -28,6 +28,14 @@ describe("classifyError", () => {
     });
   });
 
+  it("treats a bare Error whose message signals a transport failure as retryable", () => {
+    // A disconnect often throws a typed error first, then a plain Error on the
+    // retry while the socket reconnects — recognise the latter by message.
+    expect(classifyError(new Error("websocket connection closed"))).toEqual({ code: "Error", retryable: true });
+    expect(classifyError(new Error("not connected"))).toEqual({ code: "Error", retryable: true });
+    expect(classifyError(new Error("socket hang up"))).toEqual({ code: "Error", retryable: true });
+  });
+
   it("returns non-retryable for unknown or non-error inputs", () => {
     expect(classifyError(new Error("boom"))).toEqual({ code: "Error", retryable: false });
     expect(classifyError(null)).toEqual({ code: undefined, retryable: false });

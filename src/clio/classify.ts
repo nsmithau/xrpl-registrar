@@ -32,6 +32,15 @@ const CONNECTION_ERROR_NAMES = new Set<string>([
   "ResponseFormatError",
 ]);
 
+/**
+ * Transport failures that surface as a plain `Error` (no class name, no xrpld
+ * slug) — e.g. xrpl.js throwing while the socket is mid-reconnect. A disconnect
+ * often produces a typed error on the first throw and a bare one on the next, so
+ * recognising these by message keeps a retry from giving up mid-reconnection.
+ */
+const CONNECTION_ERROR_PATTERN =
+  /disconnect|not connected|connection (?:closed|reset|refused|lost|error)|socket hang up|websocket|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|timed?[- ]?out/i;
+
 export interface ErrorClassification {
   /** The xrpld error slug, or a synthetic code for connection failures. */
   readonly code: string | undefined;
@@ -70,6 +79,13 @@ export function classifyError(err: unknown): ErrorClassification {
   const name = readString(record, "name");
   if (name !== undefined && CONNECTION_ERROR_NAMES.has(name)) {
     return { code: name, retryable: true };
+  }
+
+  // …or by message, for transport errors that arrive as a bare `Error` (no
+  // recognised class name and no xrpld slug) during a reconnection window.
+  const message = readString(record, "message");
+  if (message !== undefined && CONNECTION_ERROR_PATTERN.test(message)) {
+    return { code: name ?? "ConnectionError", retryable: true };
   }
 
   return { code: name, retryable: false };

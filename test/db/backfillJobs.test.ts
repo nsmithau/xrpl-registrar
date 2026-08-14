@@ -40,7 +40,7 @@ describe("BackfillJobRepository", () => {
     expect(await jobs.claim(issuanceId)).toBeNull();
   });
 
-  it("does not claim running or failed jobs, and reclaims stale running ones", async () => {
+  it("reclaims stale running and failed jobs for retry; neither is directly claimable", async () => {
     await jobs.enqueue(issuanceId, "rA", 0);
     const job = await jobs.claim(issuanceId); // rA -> running
     expect(await jobs.claim(issuanceId)).toBeNull(); // running is not claimable
@@ -50,7 +50,9 @@ describe("BackfillJobRepository", () => {
     expect((await jobs.claim(issuanceId))?.address).toBe("rA");
 
     await jobs.fail(job!.id);
-    expect(await jobs.claim(issuanceId)).toBeNull(); // failed is not claimable
-    expect(await jobs.reclaimStale(issuanceId)).toBe(0); // and not reclaimed
+    expect(await jobs.claim(issuanceId)).toBeNull(); // failed is not directly claimable
+    // reclaimStale also returns failed jobs to pending, so a later run retries them.
+    expect(await jobs.reclaimStale(issuanceId)).toBe(1);
+    expect((await jobs.claim(issuanceId))?.address).toBe("rA");
   });
 });
