@@ -25,10 +25,13 @@ import {
   backfillGap,
   consoleLogger,
   createClioClient,
+  deltaDeriver,
   discover,
   ingestIssuance,
   loadConfig,
   openArchiveDatabase,
+  trackedIssuance,
+  type TrackedIssuance,
 } from "../src/index.js";
 
 const MPT = (process.env.MPT_ISSUANCE_ID ?? "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1").toUpperCase();
@@ -43,6 +46,15 @@ const { client } = createClioClient(config);
 const db = await openArchiveDatabase(config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {});
 await client.connect();
 
+// Issuances whose per-transaction deltas the backfill, tail, and gap heal derive
+// as transactions land — refreshed whenever an issuance is registered, so
+// balance_deltas stays current without a periodic full re-derivation.
+let tracked: TrackedIssuance[] = [];
+const refreshTracked = async (): Promise<void> => {
+  tracked = (await new IssuanceRepository(db).list()).map(trackedIssuance);
+};
+const deriveDeltas = deltaDeriver(() => tracked);
+
 // Populate the archive for the issuance, unless it is already tracked.
 const existing = await db.query("SELECT id FROM issuances WHERE mpt_issuance_id = $1", [MPT]);
 if (existing.rows.length === 0) {
@@ -53,7 +65,7 @@ if (existing.rows.length === 0) {
   const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
   await new AccountRepository(db).recordDiscovered(issuance.id, res.accounts);
   const from = Math.min(...res.accounts.map((a) => a.firstAcquisitionLedger ?? 0).filter(Boolean));
-  const worker = new BackfillWorker({ client, db });
+  const worker = new BackfillWorker({ client, db, deriveDeltas: deltaDeriver([trackedIssuance(issuance)]) });
   await worker.enqueue(issuance.id, res.accounts.map((a) => a.address), from);
   const { processed } = await activity.track("backfill", `backfilling ${MPT}`, () =>
     worker.runIssuance(issuance.id),
@@ -62,6 +74,9 @@ if (existing.rows.length === 0) {
 } else {
   console.log(`MPT ${MPT} already in archive; serving existing data.`);
 }
+
+// The tail and gap heal derive deltas for whatever issuances are tracked now.
+await refreshTracked();
 
 const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
 const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: consoleLogger });
@@ -87,6 +102,7 @@ if (scope.length > 0) {
     db,
     source: tailSource,
     logger: consoleLogger,
+    deriveDeltas,
     ...(highWater !== undefined ? { startLedger: highWater } : {}),
     onGap: async (range) => {
       // Heal against the current in-scope set (re-discovery may have grown it).
@@ -94,7 +110,7 @@ if (scope.length > 0) {
       await activity.track(
         "backfill",
         `healing ${range.fromLedger}–${range.toLedger}`,
-        () => backfillGap(client, db, rows.rows.map((r) => r.address), range, consoleLogger),
+        () => backfillGap(client, db, rows.rows.map((r) => r.address), range, consoleLogger, deriveDeltas),
       );
     },
   });
@@ -148,7 +164,9 @@ if (config.admin.token) {
     onRegistered: (issuance) => {
       ingestIssuance(client, db, issuance, consoleLogger, activity)
         .then(async () => {
-          // Bring the newly-registered issuance's accounts into the live tail.
+          // Track the new issuance for tail delta derivation, and bring its
+          // accounts into the live subscription.
+          await refreshTracked();
           if (!tailSource) return;
           const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
           await tailSource.setAccounts(rows.rows.map((r) => r.address));

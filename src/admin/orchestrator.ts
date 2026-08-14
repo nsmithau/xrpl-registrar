@@ -6,7 +6,7 @@ import type { IssuanceRecord } from "../db/repositories/issuances.js";
 import { discover, type DiscoveryTarget } from "../discovery/index.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { deriveIouDeltas, deriveMptDeltas } from "../reconcile/index.js";
+import { BalanceDeltaRepository, deltaDeriver, trackedIssuance } from "../reconcile/index.js";
 
 import { noopActivityTracker, type ActivityTracker } from "./activity.js";
 
@@ -70,7 +70,14 @@ export async function ingestIssuance(
         ? Math.min(...acquisitionLedgers)
         : 0;
 
-  const worker = new BackfillWorker({ client, db, logger });
+  // Deltas are derived per transaction as each is backfilled (and kept current
+  // afterwards by the live tail), so there is no O(history) re-derivation pass.
+  const worker = new BackfillWorker({
+    client,
+    db,
+    logger,
+    deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
+  });
   await worker.enqueue(
     issuance.id,
     result.accounts.map((a) => a.address),
@@ -84,10 +91,7 @@ export async function ingestIssuance(
   // reporting later.
   await captureCloseTimes(client, db, issuance.id);
 
-  const deltaRows =
-    issuance.kind === "mpt"
-      ? await deriveMptDeltas(db, issuance.id, issuance.mptIssuanceId ?? "")
-      : await deriveIouDeltas(db, issuance.id, issuance.currency ?? "", issuance.issuerAccount ?? "");
+  const deltaRows = await new BalanceDeltaRepository(db).count(issuance.id);
 
   logger.info("issuance ingested", {
     issuanceId: issuance.id,

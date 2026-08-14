@@ -85,6 +85,20 @@ describe("LiveTail", () => {
     expect(Number(rows[0]!.n)).toBe(2);
   });
 
+  it("derives deltas for each ingested transaction (not for ledger events)", async () => {
+    const seen: string[] = [];
+    const tail = new LiveTail({
+      db,
+      source: source([tx("T1", 100, ["rA"]), { type: "ledger", ledgerIndex: 100 }, tx("T2", 101, ["rA"])]),
+      deriveDeltas: (_q, hash) => {
+        seen.push(hash);
+        return Promise.resolve();
+      },
+    });
+    await tail.run();
+    expect(seen).toEqual(["T1", "T2"]); // once per transaction, on the ingest tx
+  });
+
   it("is idempotent when the same transaction is seen twice (live then heal)", async () => {
     const tail = new LiveTail({
       db,

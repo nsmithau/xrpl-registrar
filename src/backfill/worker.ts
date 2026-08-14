@@ -1,5 +1,5 @@
 import type { Provenance } from "../clio/types.js";
-import type { Database } from "../db/database.js";
+import type { Database, Queryable } from "../db/database.js";
 import {
   BackfillJobRepository,
   checkpointJob,
@@ -31,6 +31,10 @@ export interface BackfillWorkerOptions {
     account: string,
     provenance: Provenance,
   ) => IngestTransaction;
+  /** Derive each transaction's balance deltas as it is ingested, on the same DB
+   * transaction as the insert (so backfilled history has deltas without a
+   * separate full re-scan). Default: none. */
+  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
 }
 
 /**
@@ -52,6 +56,7 @@ export class BackfillWorker {
   readonly #pageLimit: number | undefined;
   readonly #concurrency: number;
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
+  readonly #deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
   readonly jobs: BackfillJobRepository;
   /** Session-wide running total of transactions ingested, for the throttled
    * progress counter (shared across concurrently-backfilled accounts). */
@@ -65,6 +70,7 @@ export class BackfillWorker {
     this.#pageLimit = options.pageLimit;
     this.#concurrency = Math.max(1, options.concurrency ?? 4);
     this.#mapEntry = options.mapEntry ?? mapBinaryEntry;
+    this.#deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
     this.jobs = new BackfillJobRepository(options.db);
   }
 
@@ -92,6 +98,7 @@ export class BackfillWorker {
           for (const entry of page.entries) {
             const mapped = this.#mapEntry(entry, job.address, page.provenance);
             await insertTransactionRows(t, mapped);
+            await this.#deriveDeltas(t, mapped.hash, mapped.metaBlob);
             if (mapped.ledgerIndex > maxLedger) maxLedger = mapped.ledgerIndex;
           }
           await checkpointJob(t, job.id, page.marker, page.entries.length);

@@ -1,6 +1,6 @@
 import { mapBinaryEntry } from "../backfill/mapEntry.js";
 import { accountTxPages } from "../backfill/pages.js";
-import type { Database } from "../db/database.js";
+import type { Database, Queryable } from "../db/database.js";
 import { insertTransactionRows } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
@@ -26,6 +26,7 @@ export async function backfillGap(
   accounts: readonly string[],
   range: LedgerRange,
   logger: Logger = nullLogger,
+  deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void> = () => Promise.resolve(),
 ): Promise<number> {
   const startedMs = Date.now();
   logger.info("gap heal started", {
@@ -44,7 +45,9 @@ export async function backfillGap(
       if (page.entries.length === 0) continue;
       await db.transaction(async (t) => {
         for (const entry of page.entries) {
-          await insertTransactionRows(t, mapBinaryEntry(entry, account, page.provenance));
+          const mapped = mapBinaryEntry(entry, account, page.provenance);
+          await insertTransactionRows(t, mapped);
+          await deriveDeltas(t, mapped.hash, mapped.metaBlob);
           count += 1;
         }
       });

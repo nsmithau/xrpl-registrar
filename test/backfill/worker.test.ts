@@ -153,6 +153,23 @@ describe("BackfillWorker", () => {
     expect(Number(links.rows[0]!.n)).toBe(4 * accts.length);
   });
 
+  it("calls the deriveDeltas hook once per ingested transaction, on the ingest tx", async () => {
+    const seen: string[] = [];
+    const worker = new BackfillWorker({
+      client: pageServer(),
+      db,
+      mapEntry: idMap,
+      deriveDeltas: (_q, hash) => {
+        seen.push(hash);
+        return Promise.resolve();
+      },
+    });
+    await worker.enqueue(issuanceId, [ACCT], 0);
+    await worker.runJob((await worker.jobs.claim(issuanceId))!);
+    // idMap uses tx_blob as the hash; the three pages carry E1..E4.
+    expect(seen).toEqual(["E1", "E2", "E3", "E4"]);
+  });
+
   it("is idempotent when a completed job is re-run", async () => {
     const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap });
     await worker.enqueue(issuanceId, [ACCT], 0);

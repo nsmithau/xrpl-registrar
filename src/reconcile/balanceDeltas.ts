@@ -64,7 +64,9 @@ export class BalanceDeltaRepository {
   }
 }
 
-async function insertDelta(tx: Queryable, issuanceId: number, row: DeltaRow): Promise<void> {
+/** Upsert one delta on a caller-supplied transaction/connection, ensuring the
+ * account row exists first. Idempotent on (hash, address, issuance_id). */
+export async function insertDelta(tx: Queryable, issuanceId: number, row: DeltaRow): Promise<void> {
   await tx.query(
     `INSERT INTO accounts (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
     [row.address],

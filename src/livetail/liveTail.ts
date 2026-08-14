@@ -1,4 +1,4 @@
-import type { Database } from "../db/database.js";
+import type { Database, Queryable } from "../db/database.js";
 import { LedgerTimeRepository } from "../db/repositories/ledgers.js";
 import { insertTransactionRows, type IngestTransaction } from "../db/repositories/transactions.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
@@ -13,6 +13,9 @@ export interface LiveTailOptions {
   readonly startLedger?: number;
   /** Heal a detected gap. Default: log only. */
   readonly onGap?: (range: LedgerRange) => Promise<void> | void;
+  /** Derive a transaction's balance deltas as it is ingested, on the same DB
+   * transaction (so `balance_deltas` stays current with the tail). Default: none. */
+  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
   readonly logger?: Logger;
 }
 
@@ -49,6 +52,7 @@ export class LiveTail {
   readonly #source: TailSource;
   readonly #gaps: GapTracker;
   readonly #onGap: (range: LedgerRange) => Promise<void> | void;
+  readonly #deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
   readonly #logger: Logger;
   readonly #ledgerTimes: LedgerTimeRepository;
 
@@ -61,6 +65,7 @@ export class LiveTail {
     this.#source = options.source;
     this.#gaps = new GapTracker(options.startLedger);
     this.#onGap = options.onGap ?? (() => {});
+    this.#deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
     this.#logger = options.logger ?? nullLogger;
     this.#ledgerTimes = new LedgerTimeRepository(options.db);
   }
@@ -81,7 +86,10 @@ export class LiveTail {
           await this.#onGap(gap);
         }
       } else {
-        await this.#db.transaction((t) => insertTransactionRows(t, eventToIngest(ev)));
+        await this.#db.transaction(async (t) => {
+          await insertTransactionRows(t, eventToIngest(ev));
+          await this.#deriveDeltas(t, ev.hash, ev.metaBlob);
+        });
         this.#ingested += 1;
       }
     }
