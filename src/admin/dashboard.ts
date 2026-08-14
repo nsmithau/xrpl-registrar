@@ -245,7 +245,8 @@ export const DASHBOARD_HTML = `<!doctype html>
     var t = document.createElement("span");
     t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
     bfTd.appendChild(t); tr.appendChild(bfTd);
-    cell(tr, s.coverage ? (s.coverage.min + "\\u2013" + s.coverage.max) : "\\u2014", "mono");
+    var covTd = cell(tr, s.coverage ? (s.coverage.min + "\\u2013" + s.coverage.max) : "\\u2014", "mono");
+    covTd.title = "Conservative coverage: the ledger range over which every in-scope account is complete.";
     if (!s.lastReconciliation) cell(tr, "\\u2014", "muted");
     else cell(tr, s.lastReconciliation.passed ? "\\u2713 passed" : ("\\u2717 " + s.lastReconciliation.discrepancies + " off"),
               s.lastReconciliation.passed ? "ok" : "bad");

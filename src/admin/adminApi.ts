@@ -42,6 +42,8 @@ export interface IssuanceStatus {
   /** Highest ledger any of this issuance's transactions is in, or null. */
   readonly latestLedger: number | null;
   readonly backfill: BackfillSummary;
+  /** Conservative coverage: the ledger range over which every in-scope account
+   * is complete (max start … min end), or null if they do not overlap. */
   readonly coverage: { readonly min: number; readonly max: number } | null;
   readonly lastReconciliation: {
     readonly runId: number;
@@ -166,9 +168,17 @@ export class AdminApi {
     return summary;
   }
 
+  /**
+   * The **conservative** coverage window: the ledger range over which *every*
+   * backfilled in-scope account is complete — `max(from_ledger) … min(to_ledger)`.
+   * This is a completeness guarantee for all accounts, not the loose outer
+   * envelope (`min(from) … max(to)`), which a single early- or late-bounded
+   * account would inflate. Returns null when the per-account ranges do not
+   * overlap (no single ledger is covered by all of them).
+   */
   async #coverage(id: number): Promise<{ min: number; max: number } | null> {
     const { rows } = await this.#db.query<{ lo: number | string | null; hi: number | string | null }>(
-      `SELECT min(c.from_ledger) AS lo, max(c.to_ledger) AS hi
+      `SELECT max(c.from_ledger) AS lo, min(c.to_ledger) AS hi
        FROM coverage c
        JOIN account_issuance ai ON ai.address = c.address
        WHERE ai.issuance_id = $1`,
@@ -177,7 +187,9 @@ export class AdminApi {
     const lo = rows[0]?.lo;
     const hi = rows[0]?.hi;
     if (lo === null || lo === undefined || hi === null || hi === undefined) return null;
-    return { min: Number(lo), max: Number(hi) };
+    const min = Number(lo);
+    const max = Number(hi);
+    return min > max ? null : { min, max }; // no window covered by every account
   }
 
   async #lastReconciliation(id: number): Promise<IssuanceStatus["lastReconciliation"]> {

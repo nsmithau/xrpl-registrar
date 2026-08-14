@@ -66,6 +66,26 @@ describe("AdminApi", () => {
     expect(status.lastReconciliation).toMatchObject({ passed: true, discrepancies: 0 });
   });
 
+  it("reports conservative coverage: the range covered by every account, not the envelope", async () => {
+    const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_C" });
+    await new AccountRepository(db).recordDiscovered(iss.id, [
+      { address: "rA", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
+      { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 150 },
+    ]);
+    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,200,'t'),('rB',150,180,'t')");
+    // Conservative window is max(from)=150 … min(to)=180, not the 100–200 envelope.
+    expect((await api.getIssuance(iss.id))!.coverage).toEqual({ min: 150, max: 180 });
+
+    // Non-overlapping accounts → no ledger covered by every account → null.
+    const iss2 = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_D" });
+    await new AccountRepository(db).recordDiscovered(iss2.id, [
+      { address: "rC", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
+      { address: "rD", discoveredVia: "authorization", firstAcquisitionLedger: 300 },
+    ]);
+    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rC',100,120,'t'),('rD',300,400,'t')");
+    expect((await api.getIssuance(iss2.id))!.coverage).toBeNull();
+  });
+
   it("reports the latest ledger the archive has observed", async () => {
     expect(await api.latestLedgerSeen()).toBeNull();
     await new LedgerTimeRepository(db).recordMany([
