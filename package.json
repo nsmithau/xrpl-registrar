@@ -44,7 +44,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env examples/serve.ts",
     "demo": "tsx --env-file-if-exists=.env examples/mpt-demo.ts",
     "serve": "tsx --env-file-if-exists=.env examples/serve.ts",
     "lint": "eslint .",
