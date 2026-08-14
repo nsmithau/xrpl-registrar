@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
-import type { BinaryTxEntry } from "../../src/backfill/pages.js";
 import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
 import { fakeReader } from "../discovery/fakes.js";
@@ -20,29 +19,28 @@ describe("backfillGap", () => {
     await db.close();
   });
 
-  it("re-fetches each in-scope account bounded to the gap range", async () => {
+  it("fetches each ledger in the gap range, not one request per account", async () => {
     const requests: ClioRequest[] = [];
     const client = fakeReader((req) => {
       requests.push(req);
-      return { transactions: [], marker: undefined }; // empty: exercise bounds, not decoding
+      return { ledger: { transactions: [] } }; // empty ledgers: exercise the loop, not decoding
     });
 
-    const n = await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 800 });
+    // Two accounts, four ledgers → four requests (independent of account count).
+    const n = await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 503 });
 
     expect(n).toBe(0);
-    expect(requests).toHaveLength(2);
+    expect(requests.map((r) => r.ledger_index)).toEqual([500, 501, 502, 503]);
     for (const req of requests) {
-      expect(req.command).toBe("account_tx");
-      expect(req.forward).toBe(true);
+      expect(req.command).toBe("ledger");
+      expect(req.transactions).toBe(true);
+      expect(req.expand).toBe(true);
       expect(req.binary).toBe(true);
-      expect(req.ledger_index_min).toBe(500);
-      expect(req.ledger_index_max).toBe(800);
     }
-    expect(requests.map((r) => r.account).sort()).toEqual(["rA", "rB"]);
   });
 
-  it("logs a start and completion line, not a line per account, so a heal is never silent", async () => {
-    const client = fakeReader(() => ({ transactions: [], marker: undefined }));
+  it("logs a start and completion line, not a line per ledger, so a heal is never silent", async () => {
+    const client = fakeReader(() => ({ ledger: { transactions: [] } }));
     const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
     const logger = {
       info: (message: string, meta?: Record<string, unknown>) => logs.push({ message, ...(meta ? { meta } : {}) }),
@@ -50,49 +48,56 @@ describe("backfillGap", () => {
       error: () => {},
     };
 
-    await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 800 }, { logger });
+    await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 800 }, { logger });
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
     expect(messages).toContain("gap heal finished");
-    // Progress is a throttled running counter, never one line per account.
+    // Progress is a throttled running counter, never one line per ledger.
     expect(messages.filter((m) => m === "gap heal progress")).toHaveLength(0);
     const finished = logs.find((l) => l.message === "gap heal finished");
     expect(finished?.meta?.["ingested"]).toBe(0);
     expect(finished?.meta).toHaveProperty("elapsedMs");
   });
 
-  it("runs onEntry per healed transaction (streaming discovery over the gap)", async () => {
-    // Two binary entries per account; a stub mapEntry avoids needing real blobs.
+  it("ingests only in-scope transactions and runs onEntry per healed transaction", async () => {
+    await db.query("INSERT INTO accounts (address) VALUES ('rA') ON CONFLICT DO NOTHING");
+    // One ledger with two transactions; a stub mapTx stands in for binary decode.
     const client = fakeReader((req: ClioRequest) => {
-      if (req.command !== "account_tx") return {};
+      if (req.command !== "ledger") return {};
       return {
-        transactions: [
-          { tx_blob: `${String(req.account)}-1`, meta_blob: "aa", ledger_index: 600 },
-          { tx_blob: `${String(req.account)}-2`, meta_blob: "bb", ledger_index: 601 },
-        ],
-        marker: undefined,
+        ledger: {
+          transactions: [
+            { tx_blob: "IN", meta_blob: "m1", hash: "H1" }, // in scope
+            { tx_blob: "OUT", meta_blob: "m2", hash: "H2" }, // filtered out
+          ],
+        },
       };
     });
-    // Map an entry to a row using its tx_blob as the hash and meta_blob as bytes.
-    const mapEntry = (entry: BinaryTxEntry, account: string): IngestTransaction => ({
-      hash: entry.tx_blob,
-      ledgerIndex: entry.ledger_index,
-      txType: "Payment",
-      mptIssuanceId: null,
-      txBlob: new Uint8Array(),
-      metaBlob: new TextEncoder().encode(entry.meta_blob),
-      provenance: PROV,
-      accounts: [account],
-    });
+    // Keep only the in-scope entry; expose its meta_blob as the row's metaBlob.
+    const mapTx = (entry: { tx_blob?: string; meta_blob?: string; hash?: string }): IngestTransaction | null =>
+      entry.tx_blob === "IN"
+        ? {
+            hash: entry.hash!,
+            ledgerIndex: 500,
+            txType: "Payment",
+            mptIssuanceId: null,
+            txBlob: new Uint8Array(),
+            metaBlob: new TextEncoder().encode(entry.meta_blob ?? ""),
+            provenance: PROV,
+            accounts: ["rA"],
+          }
+        : null;
 
     const seen: string[] = [];
-    const n = await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 800 }, {
-      mapEntry,
+    const n = await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 500 }, {
+      mapTx,
       onEntry: (metaBlob) => seen.push(new TextDecoder().decode(metaBlob)),
     });
 
-    expect(n).toBe(2);
-    expect(seen).toEqual(["aa", "bb"]); // once per healed transaction, post-commit
+    expect(n).toBe(1); // only the in-scope transaction
+    expect(seen).toEqual(["m1"]); // onEntry ran for it, post-commit
+    const { rows } = await db.query<{ n: number | string }>("SELECT count(*)::int AS n FROM transactions");
+    expect(Number(rows[0]!.n)).toBe(1);
   });
 });
