@@ -4,12 +4,41 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
-import { deriveTxDeltas, trackedIssuance } from "../../src/reconcile/incremental.js";
+import { deriveTxDeltas, holdersInMetaBlob, trackedIssuance } from "../../src/reconcile/incremental.js";
+import type { TrackedIssuance } from "../../src/reconcile/incremental.js";
 import { hexToBytes } from "../../src/util/hex.js";
 
 const MPT = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
 const HOLDER = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
+const RLUSD_HEX = "524C555344000000000000000000000000000000";
+const ISSUER = "rvuwyijyoSSRvvhkbbhDcZ3AjRcvd7LAP";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
+
+function encodeMeta(meta: object): Uint8Array {
+  return hexToBytes(encode(meta as unknown as Parameters<typeof encode>[0]));
+}
+
+// A RippleState (trustline) node placing HOLDER on the high side, ISSUER on low.
+function iouMetaBlob(): Uint8Array {
+  return encodeMeta({
+    TransactionIndex: 0,
+    TransactionResult: "tesSUCCESS",
+    AffectedNodes: [
+      {
+        ModifiedNode: {
+          LedgerEntryType: "RippleState",
+          LedgerIndex: "0".repeat(64),
+          FinalFields: {
+            Balance: { currency: RLUSD_HEX, issuer: ISSUER, value: "-50" },
+            LowLimit: { currency: RLUSD_HEX, issuer: ISSUER, value: "0" },
+            HighLimit: { currency: RLUSD_HEX, issuer: HOLDER, value: "1000000" },
+            Flags: 0,
+          },
+        },
+      },
+    ],
+  });
+}
 
 // A real (encode/decode-round-trippable) MPToken balance-change metadata blob.
 function mptMetaBlob(finalAmt: number, prevAmt: number): Uint8Array {
@@ -27,9 +56,7 @@ function mptMetaBlob(finalAmt: number, prevAmt: number): Uint8Array {
       },
     ],
   };
-  // `encode`'s xrpl typing expects a Transaction/LedgerEntry; metadata is a
-  // valid STObject to the binary codec, so cast past the stricter surface type.
-  return hexToBytes(encode(meta as unknown as Parameters<typeof encode>[0]));
+  return encodeMeta(meta);
 }
 
 describe("deriveTxDeltas", () => {
@@ -80,5 +107,24 @@ describe("deriveTxDeltas", () => {
     const iss = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
     expect(await deriveTxDeltas(db, [], "TX", mptMetaBlob(100, 40))).toBe(0);
     expect(await deriveTxDeltas(db, [trackedIssuance(iss)], "TX", new Uint8Array())).toBe(0);
+  });
+});
+
+describe("holdersInMetaBlob (streaming discovery)", () => {
+  const mpt: TrackedIssuance = { id: 1, kind: "mpt", mptIssuanceId: MPT };
+  const iou: TrackedIssuance = { id: 2, kind: "iou", currency: "RLUSD", issuer: ISSUER };
+
+  it("extracts an MPT holder from a transaction's meta", () => {
+    expect(holdersInMetaBlob(mptMetaBlob(100, 40), [mpt])).toEqual([{ issuanceId: 1, holder: HOLDER }]);
+  });
+
+  it("extracts an IOU holder (the non-issuer side of the trustline)", () => {
+    expect(holdersInMetaBlob(iouMetaBlob(), [iou])).toEqual([{ issuanceId: 2, holder: HOLDER }]);
+  });
+
+  it("ignores nodes for untracked issuances and empty meta", () => {
+    const other: TrackedIssuance = { id: 3, kind: "mpt", mptIssuanceId: `0128${"0".repeat(44)}` };
+    expect(holdersInMetaBlob(mptMetaBlob(100, 40), [other])).toEqual([]);
+    expect(holdersInMetaBlob(new Uint8Array(), [mpt])).toEqual([]);
   });
 });

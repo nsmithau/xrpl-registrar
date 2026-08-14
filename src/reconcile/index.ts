@@ -6,9 +6,12 @@ export {
   deriveTxDeltas,
   deltaDeriver,
   trackedIssuance,
+  holdersInMeta,
+  holdersInMetaBlob,
   noopDeriveDeltas,
   type DeriveDeltas,
   type TrackedIssuance,
+  type DetectedHolder,
 } from "./incremental.js";
 export {
   Reconciler,

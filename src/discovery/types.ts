@@ -3,6 +3,10 @@ import type { ClioRequest, ClioResponse } from "../clio/types.js";
 /** The strategies for deriving an issuance's historical account set. */
 export type DiscoveryStrategyName = "authorization" | "trustline" | "traversal";
 
+/** How an account came to be tracked: a bulk discovery strategy, or the live
+ * tail spotting a holder in a streamed transaction. */
+export type DiscoverySource = DiscoveryStrategyName | "stream";
+
 /** What discovery is asked to derive the account set for. */
 export type DiscoveryTarget =
   | {
@@ -22,7 +26,7 @@ export type DiscoveryTarget =
 
 export interface DiscoveredAccount {
   readonly address: string;
-  readonly discoveredVia: DiscoveryStrategyName;
+  readonly discoveredVia: DiscoverySource;
   /** Ledger at which the account first appears in scope, if known. */
   readonly firstAcquisitionLedger: number | null;
 }

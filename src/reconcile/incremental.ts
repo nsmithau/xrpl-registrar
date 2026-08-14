@@ -2,11 +2,11 @@ import { decode } from "xrpl";
 
 import type { Queryable } from "../db/database.js";
 import type { IssuanceRecord } from "../db/repositories/issuances.js";
-import { asRecord } from "../discovery/fields.js";
+import { asRecord, asString } from "../discovery/fields.js";
 import { bytesToHex } from "../util/hex.js";
 
 import { insertDelta } from "./balanceDeltas.js";
-import { iouDeltas } from "./iou.js";
+import { holderInfo, iouDeltas } from "./iou.js";
 import { mptDeltas } from "./mptDeltas.js";
 
 /** The minimum an issuance needs for per-transaction delta derivation. */
@@ -61,6 +61,65 @@ export async function deriveTxDeltas(
     }
   }
   return written;
+}
+
+/** A holder of a tracked issuance found in a transaction's metadata. */
+export interface DetectedHolder {
+  readonly issuanceId: number;
+  readonly holder: string;
+}
+
+/**
+ * Find every account holding a tracked issuance's token that appears in a
+ * transaction's metadata — the basis for streaming discovery: the live tail,
+ * subscribed to the issuer, sees a new holder's first `MPToken` / `RippleState`
+ * node here before that account is otherwise known. Includes zero-balance
+ * opt-ins (unlike delta derivation, which only reports balance changes).
+ */
+export function holdersInMeta(
+  meta: Record<string, unknown>,
+  issuances: readonly TrackedIssuance[],
+): DetectedHolder[] {
+  const affected = meta["AffectedNodes"];
+  if (!Array.isArray(affected)) return [];
+
+  const out: DetectedHolder[] = [];
+  const seen = new Set<string>();
+  for (const raw of affected) {
+    const wrapper = asRecord(raw);
+    const node =
+      asRecord(wrapper?.["CreatedNode"]) ??
+      asRecord(wrapper?.["ModifiedNode"]) ??
+      asRecord(wrapper?.["DeletedNode"]);
+    const type = node ? asString(node["LedgerEntryType"]) : undefined;
+    const fields = node ? (asRecord(node["FinalFields"]) ?? asRecord(node["NewFields"])) : undefined;
+    if (!fields) continue;
+
+    for (const iss of issuances) {
+      let holder: string | undefined;
+      if (iss.kind === "mpt" && type === "MPToken" && asString(fields["MPTokenIssuanceID"]) === (iss.mptIssuanceId ?? "")) {
+        holder = asString(fields["Account"]);
+      } else if (iss.kind === "iou" && type === "RippleState") {
+        holder = holderInfo(fields, iss.issuer ?? "", iss.currency ?? "")?.holder;
+      }
+      if (!holder) continue;
+      const key = `${iss.id}|${holder}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ issuanceId: iss.id, holder });
+    }
+  }
+  return out;
+}
+
+/** {@link holdersInMeta} from a raw (undecoded) metadata blob. */
+export function holdersInMetaBlob(
+  metaBlob: Uint8Array,
+  issuances: readonly TrackedIssuance[],
+): DetectedHolder[] {
+  if (metaBlob.length === 0 || issuances.length === 0) return [];
+  const meta = asRecord(decode(bytesToHex(metaBlob)));
+  return meta ? holdersInMeta(meta, issuances) : [];
 }
 
 /** Build a {@link DeriveDeltas} hook bound to a fixed set of issuances (backfill,

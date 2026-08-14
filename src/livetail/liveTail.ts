@@ -16,6 +16,9 @@ export interface LiveTailOptions {
   /** Derive a transaction's balance deltas as it is ingested, on the same DB
    * transaction (so `balance_deltas` stays current with the tail). Default: none. */
   readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+  /** Called after each transaction is ingested (post-commit, fire-and-forget) —
+   * used for streaming new-holder discovery. Default: none. */
+  readonly onTransaction?: (ev: TransactionEvent) => void;
   readonly logger?: Logger;
 }
 
@@ -53,6 +56,7 @@ export class LiveTail {
   readonly #gaps: GapTracker;
   readonly #onGap: (range: LedgerRange) => Promise<void> | void;
   readonly #deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+  readonly #onTransaction: (ev: TransactionEvent) => void;
   readonly #logger: Logger;
   readonly #ledgerTimes: LedgerTimeRepository;
 
@@ -66,6 +70,7 @@ export class LiveTail {
     this.#gaps = new GapTracker(options.startLedger);
     this.#onGap = options.onGap ?? (() => {});
     this.#deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
+    this.#onTransaction = options.onTransaction ?? (() => {});
     this.#logger = options.logger ?? nullLogger;
     this.#ledgerTimes = new LedgerTimeRepository(options.db);
   }
@@ -91,6 +96,7 @@ export class LiveTail {
           await this.#deriveDeltas(t, ev.hash, ev.metaBlob);
         });
         this.#ingested += 1;
+        this.#onTransaction(ev); // post-commit: streaming discovery, fire-and-forget
       }
     }
   }

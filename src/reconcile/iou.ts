@@ -33,7 +33,7 @@ function balanceCurrency(fields: Record<string, unknown>): string | undefined {
  * is from the low account's perspective, so a holder on the high side sees the
  * negated value. Returns null if this line does not belong to the issuance.
  */
-function holderInfo(
+export function holderInfo(
   fields: Record<string, unknown>,
   issuer: string,
   currency: string,

@@ -99,6 +99,17 @@ describe("LiveTail", () => {
     expect(seen).toEqual(["T1", "T2"]); // once per transaction, on the ingest tx
   });
 
+  it("calls onTransaction after each ingested transaction (streaming discovery hook)", async () => {
+    const seen: string[] = [];
+    const tail = new LiveTail({
+      db,
+      source: source([tx("T1", 100, ["rA"]), { type: "ledger", ledgerIndex: 100 }, tx("T2", 101, ["rA"])]),
+      onTransaction: (ev) => seen.push(ev.hash),
+    });
+    await tail.run();
+    expect(seen).toEqual(["T1", "T2"]); // once per transaction, post-commit
+  });
+
   it("is idempotent when the same transaction is seen twice (live then heal)", async () => {
     const tail = new LiveTail({
       db,

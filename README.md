@@ -18,7 +18,7 @@ Operators configure **issuances**, not account lists. For each issuance the serv
 
 1. **Discovers** the complete set of accounts that ever held the token — via an authorisation scan (auth-required MPTs), a trustline scan (IOUs), or graph traversal (the general fallback), auto-selected from the token's on-ledger flags.
 2. **Backfills** each account's history from Clio, bounded and resumable (checkpointed per page, so a crash resumes with no gaps or duplicates), retaining the raw `tx_blob`/`meta_blob` and provenance on every record.
-3. **Keeps current** with a live `subscribe` tail that detects ledger-sequence gaps and self-heals them.
+3. **Keeps current** with a live `subscribe` tail (to every holder **and** the issuer) that ingests new transactions, derives their balance deltas as they land, detects ledger-sequence gaps and self-heals them, and **discovers new holders from the stream** — a new holder's first activity routes through the subscribed issuer, so it is picked up live without a periodic full re-scan.
 4. **Derives** per-account balance deltas and **reconciles** them against the state reconstructed from metadata.
 
 Reads are served through an API that mirrors Clio's request/response shapes — so existing `xrpl.js` code works by changing a URL — plus namespaced reporting extensions Clio has no equivalent for. All upstream traffic passes through one governed client with a global concurrency cap and honest backoff, so adding issuances never multiplies upstream load.
@@ -131,7 +131,7 @@ All configuration is read from the environment. Copy [`.env.example`](.env.examp
 | `ADMIN_TOKEN` | no | — | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly. |
 | `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
 | `PORT` | no | `51234` | Port for the public read API (used by `pnpm serve`). |
-| `REDISCOVERY_INTERVAL_MS` | no | `900000` | How often `pnpm serve` re-scans tracked issuances for new holders and extends the live tail to cover them. `0` disables. |
+| `REDISCOVERY_INTERVAL_MS` | no | `900000` | Safety-net full re-scan interval. New holders are discovered live from the tail (via the issuer subscription), so this is now a backstop only — keep it long, or `0` to disable. |
 | `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
 | `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
 | `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
@@ -149,7 +149,7 @@ pnpm build             # emit to dist/
 
 ## Roadmap
 
-Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. `pnpm serve` also re-scans tracked issuances on a timer (`REDISCOVERY_INTERVAL_MS`), backfilling any newly-found holders and extending the live tail to cover them, and the operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
+Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
 
 ## Licence
 

@@ -25,8 +25,10 @@ import {
   backfillGap,
   consoleLogger,
   createClioClient,
+  decodeMptIssuer,
   deltaDeriver,
   discover,
+  holdersInMetaBlob,
   ingestIssuance,
   loadConfig,
   openArchiveDatabase,
@@ -82,14 +84,67 @@ const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
 const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: consoleLogger });
 const bound = await server.start();
 
-// Live tail: keep the archive current. Subscribe to every in-scope account and
-// anchor the gap tracker at the backfill high-water, so the gap since backfill
-// is healed on the first ledger and new transactions are ingested as they land.
-const scopeRows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
-const scope = scopeRows.rows.map((r) => r.address);
 let tail: LiveTail | undefined;
 let tailSource: XrplTailSource | undefined;
-if (scope.length > 0) {
+
+// The WebSocket subscribes to holders *and* each issuance's issuer: new-holder-
+// forming transactions (opt-ins, issue/redeem) route through the issuer, so
+// subscribing to it lets the tail discover new holders from the stream rather
+// than a periodic full re-scan.
+function issuerAddresses(list: readonly TrackedIssuance[]): string[] {
+  const out = new Set<string>();
+  for (const i of list) {
+    if (i.kind === "mpt" && i.mptIssuanceId) out.add(decodeMptIssuer(i.mptIssuanceId));
+    else if (i.kind === "iou" && i.issuer) out.add(i.issuer);
+  }
+  return [...out];
+}
+async function subscriptionSet(): Promise<string[]> {
+  const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+  const set = new Set(rows.rows.map((r) => r.address));
+  for (const issuer of issuerAddresses(tracked)) set.add(issuer);
+  return [...set];
+}
+
+// Streaming discovery: when the tail sees a holder of a tracked issuance that is
+// not yet in scope, record it, backfill its history, and extend the subscription
+// — so brand-new holders are picked up live, without a periodic full re-scan.
+const inScope = new Set<string>(); // `${issuanceId}|${address}`
+const pendingHolders = new Set<string>();
+async function seedInScope(): Promise<void> {
+  const rows = await db.query<{ issuance_id: number | string; address: string }>(
+    "SELECT issuance_id, address FROM account_issuance",
+  );
+  inScope.clear();
+  for (const r of rows.rows) inScope.add(`${Number(r.issuance_id)}|${r.address}`);
+}
+async function trackNewHolder(issuanceId: number, holder: string): Promise<void> {
+  await new AccountRepository(db).recordDiscovered(issuanceId, [
+    { address: holder, discoveredVia: "stream", firstAcquisitionLedger: null },
+  ]);
+  inScope.add(`${issuanceId}|${holder}`);
+  const worker = new BackfillWorker({ client, db, deriveDeltas });
+  await worker.enqueue(issuanceId, [holder], 0);
+  await activity.track("backfill", `new holder ${holder}`, () => worker.runIssuance(issuanceId));
+  if (tailSource) await tailSource.setAccounts(await subscriptionSet());
+  consoleLogger.info("new holder tracked from stream", { issuanceId, holder });
+}
+function onStreamTransaction(metaBlob: Uint8Array): void {
+  for (const { issuanceId, holder } of holdersInMetaBlob(metaBlob, tracked)) {
+    const key = `${issuanceId}|${holder}`;
+    if (inScope.has(key) || pendingHolders.has(key)) continue;
+    pendingHolders.add(key);
+    void trackNewHolder(issuanceId, holder)
+      .catch((err: unknown) => consoleLogger.error("track new holder failed", { holder, error: String(err) }))
+      .finally(() => pendingHolders.delete(key));
+  }
+}
+await seedInScope();
+
+// Live tail: keep the archive current, anchoring the gap tracker at the backfill
+// high-water so a restart only heals the small recent gap.
+const subs = await subscriptionSet();
+if (subs.length > 0) {
   // Anchor at the latest ledger observed by either backfill (coverage) or a
   // prior tail run (ledgers), so a restart only heals the small recent gap.
   const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
@@ -97,31 +152,33 @@ if (scope.length > 0) {
   const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
   const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
   const highWater = Math.max(covHi, ledHi) || undefined;
-  tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: scope, reader: client });
+  tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: subs, reader: client });
   tail = new LiveTail({
     db,
     source: tailSource,
     logger: consoleLogger,
     deriveDeltas,
+    onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
     ...(highWater !== undefined ? { startLedger: highWater } : {}),
     onGap: async (range) => {
-      // Heal against the current in-scope set (re-discovery may have grown it).
-      const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
+      // Heal against the current subscription set (holders + issuers), which the
+      // issuer entry makes cover new-holder activity missed during the gap.
+      const healSet = await subscriptionSet();
       await activity.track(
         "backfill",
         `healing ${range.fromLedger}–${range.toLedger}`,
-        () => backfillGap(client, db, rows.rows.map((r) => r.address), range, consoleLogger, deriveDeltas),
+        () => backfillGap(client, db, healSet, range, consoleLogger, deriveDeltas),
       );
     },
   });
   void tail.run();
-  console.log(`Live tail    : ${scope.length} account(s), healing from ledger ${highWater ?? "(none)"}`);
+  console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`);
 }
 
-// Periodic re-discovery: re-scan every tracked issuance for holders that have
-// appeared since the last scan, backfill any new accounts, and extend the live
-// subscription to cover them — so a long-running server picks up new holders
-// without a restart. Reuses the registration pipeline (idempotent throughout).
+// Periodic re-discovery is now a *safety net*: the live tail discovers new
+// holders from the stream (via the issuer subscription) as they appear, so this
+// only backstops anything a tail gap might have missed. It re-runs the full
+// scan, so keep the interval long (or 0 to disable) — streaming is primary.
 let rediscoverTimer: NodeJS.Timeout | undefined;
 async function rediscover(): Promise<void> {
   const issuances = await new IssuanceRepository(db).list();
@@ -129,10 +186,9 @@ async function rediscover(): Promise<void> {
     if (!issuance.enabled) continue;
     await ingestIssuance(client, db, issuance, consoleLogger, activity);
   }
-  if (tailSource) {
-    const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
-    await tailSource.setAccounts(rows.rows.map((r) => r.address));
-  }
+  await refreshTracked();
+  await seedInScope();
+  if (tailSource) await tailSource.setAccounts(await subscriptionSet());
 }
 if (REDISCOVERY_INTERVAL_MS > 0) {
   rediscoverTimer = setInterval(() => {
@@ -140,7 +196,7 @@ if (REDISCOVERY_INTERVAL_MS > 0) {
       consoleLogger.error("periodic re-discovery failed", { error: String(err) }),
     );
   }, REDISCOVERY_INTERVAL_MS);
-  console.log(`Re-discovery : every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (set REDISCOVERY_INTERVAL_MS=0 to disable)`);
+  console.log(`Re-discovery : safety-net re-scan every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (streaming is primary; REDISCOVERY_INTERVAL_MS=0 to disable)`);
 }
 
 console.log(`\nArchive serving (Clio-compatible):`);
@@ -164,12 +220,11 @@ if (config.admin.token) {
     onRegistered: (issuance) => {
       ingestIssuance(client, db, issuance, consoleLogger, activity)
         .then(async () => {
-          // Track the new issuance for tail delta derivation, and bring its
-          // accounts into the live subscription.
+          // Track the new issuance (for tail delta derivation + streaming
+          // discovery), and bring its accounts and issuer into the subscription.
           await refreshTracked();
-          if (!tailSource) return;
-          const rows = await db.query<{ address: string }>("SELECT address FROM accounts ORDER BY address");
-          await tailSource.setAccounts(rows.rows.map((r) => r.address));
+          await seedInScope();
+          if (tailSource) await tailSource.setAccounts(await subscriptionSet());
         })
         .catch((err: unknown) => consoleLogger.error("background ingest failed", { error: String(err) }));
     },
