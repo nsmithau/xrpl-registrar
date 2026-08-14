@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ClioRequest } from "../../src/clio/types.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
+import type { ClioReader } from "../../src/discovery/types.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
 import { fakeReader } from "../discovery/fakes.js";
 
@@ -30,13 +31,33 @@ describe("backfillGap", () => {
     const n = await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 503 });
 
     expect(n).toBe(0);
-    expect(requests.map((r) => r.ledger_index)).toEqual([500, 501, 502, 503]);
+    // Fetched with bounded concurrency, so completion order is not guaranteed.
+    expect(requests.map((r) => Number(r.ledger_index)).sort((a, b) => a - b)).toEqual([500, 501, 502, 503]);
     for (const req of requests) {
       expect(req.command).toBe("ledger");
       expect(req.transactions).toBe(true);
       expect(req.expand).toBe(true);
       expect(req.binary).toBe(true);
     }
+  });
+
+  it("fetches gap ledgers with bounded concurrency, not one at a time", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const client: ClioReader = {
+      request: (async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return { result: { ledger: { transactions: [] } }, forwarded: false, warnings: [], provenance: PROV, raw: { result: {} } };
+      }) as unknown as ClioReader["request"],
+    };
+
+    await backfillGap(client, db, ["rA"], { fromLedger: 1, toLedger: 10 }, { concurrency: 3 });
+
+    expect(maxInFlight).toBeGreaterThan(1); // actually parallel …
+    expect(maxInFlight).toBeLessThanOrEqual(3); // … but bounded by the pool
   });
 
   it("logs a start and completion line, not a line per ledger, so a heal is never silent", async () => {

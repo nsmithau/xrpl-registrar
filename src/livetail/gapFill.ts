@@ -14,6 +14,10 @@ import type { LedgerRange } from "./types.js";
 /** Emit a running progress counter at most every this many transactions. */
 const HEAL_PROGRESS_EVERY = 1000;
 
+/** How many gap ledgers to fetch concurrently. The global governor still caps
+ * actual upstream requests, so this just keeps its slots fed. */
+const HEAL_CONCURRENCY = 8;
+
 /** A binary transaction in a `ledger` response (transactions + expand + binary). */
 interface LedgerTxEntry {
   readonly tx_blob?: string;
@@ -30,6 +34,8 @@ export interface BackfillGapOptions {
    * discovery over healed transactions, so a holder that first appeared during
    * the gap is caught here rather than only by the periodic safety-net scan. */
   readonly onEntry?: (metaBlob: Uint8Array) => void;
+  /** How many gap ledgers to fetch concurrently (default 8). */
+  readonly concurrency?: number;
   /** Override the ledger-entry → row mapping (defaults to decoding raw blobs and
    * scope-filtering). Injectable for tests. */
   readonly mapTx?: (
@@ -89,6 +95,7 @@ export async function backfillGap(
   const deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
   const onEntry = options.onEntry ?? (() => {});
   const mapTx = options.mapTx ?? defaultMapTx;
+  const concurrency = options.concurrency ?? HEAL_CONCURRENCY;
   const scope = new Set(accounts);
 
   const startedMs = Date.now();
@@ -100,7 +107,8 @@ export async function backfillGap(
   });
   let count = 0;
   let lastLogged = 0;
-  for (let ledgerIndex = range.fromLedger; ledgerIndex <= range.toLedger; ledgerIndex += 1) {
+
+  const healLedger = async (ledgerIndex: number): Promise<void> => {
     const res = await client.request<{ ledger?: { transactions?: LedgerTxEntry[] } }>({
       command: "ledger",
       ledger_index: ledgerIndex,
@@ -108,13 +116,12 @@ export async function backfillGap(
       expand: true,
       binary: true,
     });
-    const entries = res.result.ledger?.transactions ?? [];
     const rows: IngestTransaction[] = [];
-    for (const entry of entries) {
+    for (const entry of res.result.ledger?.transactions ?? []) {
       const mapped = mapTx(entry, ledgerIndex, res.provenance, scope);
       if (mapped) rows.push(mapped);
     }
-    if (rows.length === 0) continue;
+    if (rows.length === 0) return;
 
     await db.transaction(async (t) => {
       await insertTransactionRowsMany(t, rows);
@@ -129,7 +136,15 @@ export async function backfillGap(
       lastLogged = count;
       logger.info("gap heal progress", { ingested: count });
     }
-  }
+  };
+
+  const ledgers: number[] = [];
+  for (let l = range.fromLedger; l <= range.toLedger; l += 1) ledgers.push(l);
+  // Fetch ledgers with bounded concurrency instead of one at a time; the global
+  // governor still caps actual upstream requests. Ingest is idempotent, so the
+  // (nondeterministic) completion order is fine.
+  await mapPool(ledgers, concurrency, healLedger);
+
   logger.info("gap heal finished", {
     fromLedger: range.fromLedger,
     toLedger: range.toLedger,
@@ -137,4 +152,19 @@ export async function backfillGap(
     elapsedMs: Date.now() - startedMs,
   });
   return count;
+}
+
+/** Run `fn` over `items` with at most `concurrency` in flight at once. */
+async function mapPool<T>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    while (next < items.length) {
+      await fn(items[next++]!);
+    }
+  });
+  await Promise.all(runners);
 }
