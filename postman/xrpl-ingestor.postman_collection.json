@@ -1,0 +1,604 @@
+{
+  "info": {
+    "_postman_id": "b1e7a3c2-9d84-4f16-8a0e-7c5f2d3a1b90",
+    "name": "XRPL Ingestor",
+    "description": "Admin API and tool-specific reporting endpoints for a self-hosted XRPL filtered-archive ingestor.\n\nTwo ports:\n- Read API (`readUrl`, default http://127.0.0.1:51234) — public, Clio-compatible + `archive_*` reporting extensions.\n- Admin API (`adminUrl`, default http://127.0.0.1:51235) — authenticated with `adminToken`; also serves the read-only dashboard at `/`.\n\nSetup: set `adminToken` to your ADMIN_TOKEN, and set `mptIssuanceId` / `account` (or `currency` + `issuer`) to real values. Typical flow: Admin → Register issuance (saves `issuanceId`) → Get issuance status until backfill completes → Reporting extensions.\n\n`api_version: 2` is required on every read-API call.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "Admin API (authenticated)",
+      "description": "Operator control surface on the admin port (default 51235). Requires `Authorization: Bearer {{adminToken}}` (set from your ADMIN_TOKEN). Registering an issuance triggers discovery + backfill + derivation in the background. Never expose this port publicly.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{adminToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Register MPT issuance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances"
+              ]
+            },
+            "description": "Register an MPT issuance by its 48-hex MPTokenIssuanceID. `discoveryStrategy` is optional (auto | authorization | trustline | traversal); `backfillFromLedger` is optional. On success returns 201 `{ issuance }`; this request saves the new id into the `issuanceId` variable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"mpt\",\n  \"mptIssuanceId\": \"{{mptIssuanceId}}\",\n  \"discoveryStrategy\": \"auto\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('registered (201)', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "if (j.issuance && j.issuance.id != null) {",
+                  "  pm.collectionVariables.set('issuanceId', j.issuance.id);",
+                  "  console.log('issuanceId =', j.issuance.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register IOU issuance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances"
+              ]
+            },
+            "description": "Register an IOU issuance by currency + issuer account. `discoveryStrategy` defaults to auto (trustline is the natural fit for IOUs).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"kind\": \"iou\",\n  \"currency\": \"{{currency}}\",\n  \"issuer\": \"{{issuer}}\",\n  \"discoveryStrategy\": \"trustline\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('registered (201)', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List issuances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances"
+              ]
+            },
+            "description": "List every configured issuance. Response also carries `latestLedger` (where the live tail is) and `activity` — the live backfill/discovery indicators shown on the dashboard."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get issuance status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances",
+                "{{issuanceId}}"
+              ]
+            },
+            "description": "Full status for one issuance: account count, transactions archived, latest ledger, backfill job summary, coverage range, and the last reconciliation result."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pause issuance",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances",
+                "{{issuanceId}}"
+              ]
+            },
+            "description": "Pause an issuance. The account set is append-only and is never pruned; pausing only stops further work.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Resume issuance",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
+              "host": [
+                "{{adminUrl}}"
+              ],
+              "path": [
+                "admin",
+                "issuances",
+                "{{issuanceId}}"
+              ]
+            },
+            "description": "Re-enable a paused issuance.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reporting extensions (archive_*)",
+      "description": "Namespaced reporting methods unique to this tool — Clio has no equivalent. Served from the public read API (default 51234) over HTTP JSON-RPC. Balances/deltas are computed exactly (integer for MPT, decimal for IOU). `api_version: 2` is required. Identify the issuance by `mpt_issuance_id`, or by `currency` + `issuer` for an IOU.",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "archive_balance_at — by ledger",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "An account's balance in an issuance as of a ledger index (sum of its deltas up to and including that ledger). Warns if the ledger exceeds the account's coverage."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_balance_at — by date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"date\": \"2026-03-01T00:00:00Z\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Same, but resolve the point in time from an ISO `date`: the balance as of the ledger in effect at or before that instant. Requires ledger close times to have been captured."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_deltas — by ledger range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Net balance change per account over `[from_ledger, to_ledger]` for an issuance. Omit `account` for every account; include it to scope to one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_deltas — by time range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_time\": \"2026-01-01T00:00:00Z\",\n      \"to_time\": \"2026-04-01T00:00:00Z\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Same, but the range is given as ISO `from_time` / `to_time`, each resolved to the ledger in effect at or before it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_deltas — single account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Net delta for one account over a ledger range."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Archive reads (Clio-compatible)",
+      "description": "These mirror Clio's own request/response shapes exactly — they are NOT specific to this tool, so any existing Clio/xrpl.js client or Postman collection works against the read port too. Included here as a convenience and to demonstrate the fail-closed scope behaviour (out-of-scope reads return `notInArchive`, never `actNotFound` or a plausible empty result).",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "mpt_holders",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"mpt_holders\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Current holders of an MPT from the archive, scope-checked."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "account_tx",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"account_tx\",\n  \"params\": [\n    {\n      \"account\": \"{{account}}\",\n      \"ledger_index_min\": -1,\n      \"ledger_index_max\": -1,\n      \"binary\": false,\n      \"limit\": 20,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "An in-scope account's transaction history from the archive, with honest coverage bounds. Out-of-scope accounts fail closed with `notInArchive`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "readUrl",
+      "value": "http://127.0.0.1:51234",
+      "type": "string"
+    },
+    {
+      "key": "adminUrl",
+      "value": "http://127.0.0.1:51235",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mptIssuanceId",
+      "value": "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1",
+      "type": "string"
+    },
+    {
+      "key": "account",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "currency",
+      "value": "USD",
+      "type": "string"
+    },
+    {
+      "key": "issuer",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "issuanceId",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

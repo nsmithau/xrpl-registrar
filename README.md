@@ -103,6 +103,8 @@ curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
 
 `archive_balance_at` accepts `ledger_index` or `date`; `archive_deltas` accepts `from_ledger`/`to_ledger` or `from_time`/`to_time`.
 
+A [Postman collection](postman/) covering the Admin API and the `archive_*` reporting extensions ships under [`postman/`](postman/README.md) — import it, set `adminToken` and an issuance, and register/query the archive from Postman as you would a Clio server.
+
 ## Configuration
 
 All configuration is read from the environment. Copy [`.env.example`](.env.example) to `.env` and adjust. The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-file-if-exists`); an inline variable still overrides the file.
