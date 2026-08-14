@@ -86,6 +86,26 @@ describe("AdminApi", () => {
     expect((await api.getIssuance(iss2.id))!.coverage).toBeNull();
   });
 
+  it("advances the coverage ceiling to the tail's high-water once the tail has run", async () => {
+    const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_T" });
+    await new AccountRepository(db).recordDiscovered(iss.id, [
+      { address: "rA", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
+      { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
+    ]);
+    // Backfill left each account complete only up to its last transaction.
+    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,150,'t'),('rB',100,180,'t')");
+    // Before the tail runs: ceiling is the backfill snapshot min(to)=150.
+    expect((await api.getIssuance(iss.id))!.coverage).toEqual({ min: 100, max: 150 });
+
+    // The tail has since processed ledgers up to 20000 → ceiling advances to it,
+    // reflecting that the tail keeps every account current (no longer frozen).
+    await new LedgerTimeRepository(db).recordMany([
+      { ledgerIndex: 19000, closeTimeIso: "2026-06-01T00:00:00Z" },
+      { ledgerIndex: 20000, closeTimeIso: "2026-06-01T00:01:00Z" },
+    ]);
+    expect((await api.getIssuance(iss.id))!.coverage).toEqual({ min: 100, max: 20000 });
+  });
+
   it("reports backfill job progress only while an issuance is backfilling", async () => {
     expect(await api.backfillProgress()).toBeNull(); // nothing enqueued
 

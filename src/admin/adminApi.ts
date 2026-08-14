@@ -43,7 +43,8 @@ export interface IssuanceStatus {
   readonly latestLedger: number | null;
   readonly backfill: BackfillSummary;
   /** Conservative coverage: the ledger range over which every in-scope account
-   * is complete (max start … min end), or null if they do not overlap. */
+   * is complete — max backfill start … the tail's high-water (falling back to
+   * the backfill snapshot before the tail runs). Null if they do not overlap. */
   readonly coverage: { readonly min: number; readonly max: number } | null;
   readonly lastReconciliation: {
     readonly runId: number;
@@ -185,26 +186,41 @@ export class AdminApi {
 
   /**
    * The **conservative** coverage window: the ledger range over which *every*
-   * backfilled in-scope account is complete — `max(from_ledger) … min(to_ledger)`.
-   * This is a completeness guarantee for all accounts, not the loose outer
-   * envelope (`min(from) … max(to)`), which a single early- or late-bounded
-   * account would inflate. Returns null when the per-account ranges do not
-   * overlap (no single ledger is covered by all of them).
+   * backfilled in-scope account is complete.
+   *
+   * The floor is `max(from_ledger)` — the latest backfill start, so no account
+   * begins later. The ceiling advances with the archive: the live tail keeps
+   * every in-scope account current, so once it has run, completeness extends to
+   * the tail's high-water (`max(ledgers.ledger_index)` — the latest ledger it has
+   * processed) rather than freezing at the backfill snapshot `min(to_ledger)`.
+   * Before any tail run it falls back to that snapshot. Returns null when the
+   * ranges do not overlap (no single ledger is covered by every account).
    */
   async #coverage(id: number): Promise<{ min: number; max: number } | null> {
-    const { rows } = await this.#db.query<{ lo: number | string | null; hi: number | string | null }>(
-      `SELECT max(c.from_ledger) AS lo, min(c.to_ledger) AS hi
+    const { rows } = await this.#db.query<{
+      lo: number | string | null;
+      backfill_hi: number | string | null;
+      tail_hi: number | string | null;
+    }>(
+      `SELECT max(c.from_ledger) AS lo,
+              min(c.to_ledger) AS backfill_hi,
+              (SELECT max(ledger_index) FROM ledgers) AS tail_hi
        FROM coverage c
        JOIN account_issuance ai ON ai.address = c.address
        WHERE ai.issuance_id = $1`,
       [id],
     );
     const lo = rows[0]?.lo;
-    const hi = rows[0]?.hi;
-    if (lo === null || lo === undefined || hi === null || hi === undefined) return null;
+    const backfillHi = rows[0]?.backfill_hi;
+    if (lo === null || lo === undefined || backfillHi === null || backfillHi === undefined) return null;
     const min = Number(lo);
-    const max = Number(hi);
-    return min > max ? null : { min, max }; // no window covered by every account
+    // Advance the ceiling to the tail's high-water when the tail has run.
+    const tailHi = rows[0]?.tail_hi;
+    const max =
+      tailHi === null || tailHi === undefined
+        ? Number(backfillHi)
+        : Math.max(Number(tailHi), Number(backfillHi));
+    return min > max ? null : { min, max };
   }
 
   async #lastReconciliation(id: number): Promise<IssuanceStatus["lastReconciliation"]> {
