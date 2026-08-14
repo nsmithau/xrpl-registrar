@@ -15,14 +15,29 @@ describe("runMigrations", () => {
   });
 
   it("applies pending migrations once and is idempotent", async () => {
-    expect(await runMigrations(db)).toBe(2);
+    expect(await runMigrations(db)).toBe(3);
     expect(await runMigrations(db)).toBe(0);
 
     const { rows } = await db.query<{ id: number | string; name: string }>(
       "SELECT id, name FROM schema_migrations ORDER BY id",
     );
-    expect(rows.map((r) => Number(r.id))).toEqual([1, 2]);
-    expect(rows.map((r) => r.name)).toEqual(["core_schema", "ledgers"]);
+    expect(rows.map((r) => Number(r.id))).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.name)).toEqual(["core_schema", "ledgers", "perf_indexes"]);
+  });
+
+  it("creates the perf indexes", async () => {
+    await runMigrations(db);
+    const { rows } = await db.query<{ indexname: string }>(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'",
+    );
+    const indexes = rows.map((r) => r.indexname);
+    for (const expected of [
+      "account_issuance_issuance_idx",
+      "balance_deltas_issuance_addr_idx",
+      "backfill_job_issuance_status_idx",
+    ]) {
+      expect(indexes).toContain(expected);
+    }
   });
 
   it("creates the core tables", async () => {

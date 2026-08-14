@@ -135,7 +135,21 @@ CREATE TABLE ledgers (
 CREATE INDEX ledgers_close_time_idx ON ledgers (close_time_iso);
 `;
 
+// Indexes for the hot per-issuance query paths. The natural keys lead with
+// other columns (account_issuance PK is (address, issuance_id); balance_deltas
+// PK is (hash, address, issuance_id)), so these queries scanned without them.
+const PERF_INDEXES = /* sql */ `
+-- countForIssuance, coverage join, transaction stats, backfill progress.
+CREATE INDEX account_issuance_issuance_idx ON account_issuance (issuance_id);
+-- archive_balance_at / archive_deltas sums, and the reconciler's per-account sums.
+CREATE INDEX balance_deltas_issuance_addr_idx ON balance_deltas (issuance_id, address);
+-- The backfill claim loop selects the next pending job per issuance once per
+-- account (thousands of times per backfill); make each claim an index scan.
+CREATE INDEX backfill_job_issuance_status_idx ON backfill_job (issuance_id, status, id);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: 1, name: "core_schema", sql: CORE_SCHEMA },
   { id: 2, name: "ledgers", sql: LEDGERS_SCHEMA },
+  { id: 3, name: "perf_indexes", sql: PERF_INDEXES },
 ];
