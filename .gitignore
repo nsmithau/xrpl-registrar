@@ -5,9 +5,11 @@ coverage/
 # Local embedded-database data directory (DATABASE_DIR)
 data/
 
-# Internal design docs (PRD, decision record, architecture, working context)
-# are kept private; the public repo ships code only.
-docs/
+# Internal design docs (PRD, architecture, working context) are kept private.
+# The public ROADMAP and the ADRs are published; everything else in docs/ is not.
+docs/*
+!docs/ROADMAP.md
+!docs/adr/
 *.log
 .env
 .env.*
