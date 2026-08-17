@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { ingestIssuance } from "../../src/admin/orchestrator.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import type { ClioRequest } from "../../src/clio/types.js";
 import { decodeMptIssuer } from "../../src/xrpl/mpt.js";
 import { fakeReader } from "../discovery/fakes.js";
@@ -42,6 +43,34 @@ describe("ingestIssuance", () => {
 
     const status = (await new AdminApi(db).getIssuance(iss.id))!;
     expect(status.backfill.completed).toBe(1); // the single issuer sweep job
+  });
+
+  it("captures the MPT ticker from on-ledger metadata at ingest", async () => {
+    const metaHex = Buffer.from(JSON.stringify({ t: "FGOLD", n: "Fake Gold" }), "utf8").toString("hex");
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command === "ledger_entry") return { node: { MPTokenMetadata: metaHex } };
+      if (req.command === "account_tx") return { transactions: [] };
+      return {};
+    });
+    const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
+
+    await ingestIssuance(client, db, iss);
+
+    const stored = await new IssuanceRepository(db).getById(iss.id);
+    expect(stored!.ticker).toBe("FGOLD");
+  });
+
+  it("leaves the ticker null when metadata is absent", async () => {
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command === "ledger_entry") return {}; // no node / no metadata
+      return { transactions: [] };
+    });
+    const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
+
+    await ingestIssuance(client, db, iss);
+
+    const stored = await new IssuanceRepository(db).getById(iss.id);
+    expect(stored!.ticker).toBeNull();
   });
 
   it("is idempotent: a second run does not re-sweep a completed issuance", async () => {

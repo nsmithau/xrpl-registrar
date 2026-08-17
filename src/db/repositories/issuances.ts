@@ -28,6 +28,8 @@ export interface IssuanceRecord {
   readonly mptIssuanceId: string | null;
   readonly currency: string | null;
   readonly issuerAccount: string | null;
+  /** Ticker from the MPT's on-ledger metadata (MPT only), or null. */
+  readonly ticker: string | null;
   readonly discoveryStrategy: string;
   readonly requiresAuth: boolean | null;
   readonly backfillFromLedger: number;
@@ -41,6 +43,7 @@ interface IssuanceRow extends Row {
   mpt_issuance_id: string | null;
   currency: string | null;
   issuer_account: string | null;
+  ticker: string | null;
   discovery_strategy: string;
   requires_auth: boolean | null;
   backfill_from_ledger: number | string;
@@ -59,6 +62,7 @@ function mapRow(row: IssuanceRow): IssuanceRecord {
     mptIssuanceId: row.mpt_issuance_id,
     currency: row.currency,
     issuerAccount: row.issuer_account,
+    ticker: row.ticker,
     discoveryStrategy: row.discovery_strategy,
     requiresAuth: row.requires_auth,
     backfillFromLedger: Number(row.backfill_from_ledger),
@@ -67,7 +71,7 @@ function mapRow(row: IssuanceRow): IssuanceRecord {
   };
 }
 
-const COLUMNS = `id, kind, mpt_issuance_id, currency, issuer_account,
+const COLUMNS = `id, kind, mpt_issuance_id, currency, issuer_account, ticker,
   discovery_strategy, requires_auth, backfill_from_ledger, enabled, created_at`;
 
 /** CRUD for configured issuances — the unit of configuration. */
@@ -136,5 +140,10 @@ export class IssuanceRepository {
 
   async setEnabled(id: number, enabled: boolean): Promise<void> {
     await this.#db.query("UPDATE issuances SET enabled = $2 WHERE id = $1", [id, enabled]);
+  }
+
+  /** Record the MPT ticker captured from on-ledger metadata at ingest. */
+  async setTicker(id: number, ticker: string | null): Promise<void> {
+    await this.#db.query("UPDATE issuances SET ticker = $2 WHERE id = $1", [id, ticker]);
   }
 }

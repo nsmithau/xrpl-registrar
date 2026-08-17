@@ -21,6 +21,8 @@ CREATE TABLE issuances (
   mpt_issuance_id      TEXT,
   currency             TEXT,
   issuer_account       TEXT,
+  -- Ticker from the MPT's on-ledger metadata, captured at ingest (MPT only).
+  ticker               TEXT,
   discovery_strategy   TEXT NOT NULL DEFAULT 'auto',
   requires_auth        BOOLEAN,
   backfill_from_ledger BIGINT NOT NULL DEFAULT 0,

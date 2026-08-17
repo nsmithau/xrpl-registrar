@@ -174,7 +174,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <table>
       <thead><tr>
         <th>ID</th><th>Kind</th><th>Identifier</th><th>Strategy</th><th>Enabled</th>
-        <th>Accounts</th><th>Txns</th><th>Latest</th><th>Backfill</th><th>Coverage</th><th>Reconciliation</th>
+        <th>Accounts</th><th>Txns</th><th>Latest</th><th>Backfill</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -213,10 +213,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     try { document.execCommand("copy"); } catch (e) { /* ignore */ }
     document.body.removeChild(ta);
   }
-  // Identifier cell: truncated display + a button that copies the full value.
-  function identifierCell(tr, label, full) {
+  // Identifier cell: display label + a button that copies the full value. An
+  // optional hover shows the full identifier as a tooltip on the label (used to
+  // surface the mpt id behind a ticker).
+  function identifierCell(tr, label, full, hover) {
     var td = document.createElement("td"); td.className = "mono";
-    var span = document.createElement("span"); span.textContent = label; td.appendChild(span);
+    var span = document.createElement("span"); span.textContent = label;
+    if (hover) span.title = hover;
+    td.appendChild(span);
     if (full) {
       var btn = document.createElement("button"); btn.type = "button"; btn.className = "copy";
       btn.innerHTML = copyIcon; btn.title = "Copy " + full; btn.setAttribute("aria-label", "Copy " + full);
@@ -232,8 +236,11 @@ export const DASHBOARD_HTML = `<!doctype html>
     var tr = document.createElement("tr");
     cell(tr, i.id);
     cell(tr, i.kind);
-    if (i.kind === "mpt") identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId);
-    else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount);
+    if (i.kind === "mpt") {
+      // Prefer the ticker; the full mpt id is the hover tooltip and the copy value.
+      if (i.ticker) identifierCell(tr, i.ticker, i.mptIssuanceId, i.mptIssuanceId);
+      else identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId);
+    } else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount);
     cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
@@ -245,11 +252,6 @@ export const DASHBOARD_HTML = `<!doctype html>
     var t = document.createElement("span");
     t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
     bfTd.appendChild(t); tr.appendChild(bfTd);
-    var covTd = cell(tr, s.coverage ? (s.coverage.min + "\\u2013" + s.coverage.max) : "\\u2014", "mono");
-    covTd.title = "Conservative coverage: the ledger range over which every in-scope account is complete.";
-    if (!s.lastReconciliation) cell(tr, "\\u2014", "muted");
-    else cell(tr, s.lastReconciliation.passed ? "\\u2713 passed" : ("\\u2717 " + s.lastReconciliation.discrepancies + " off"),
-              s.lastReconciliation.passed ? "ok" : "bad");
     return tr;
   }
 
