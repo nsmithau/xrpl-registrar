@@ -28,13 +28,14 @@ import {
   createClioClient,
   decodeMptIssuer,
   deltaDeriver,
-  holdersInMetaBlob,
+  holdersInMeta,
   ingestIssuance,
   issuerOf,
   loadConfig,
   openArchiveDatabase,
   runIssuerBackfill,
   trackedIssuance,
+  type DecodedMeta,
   type TrackedIssuance,
 } from "../src/index.js";
 
@@ -183,8 +184,9 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
   if (tailSource) await tailSource.setAccounts(await subscriptionSet());
   log.info("new holder tracked from stream", { issuanceId, holder });
 }
-function onStreamTransaction(metaBlob: Uint8Array): void {
-  for (const { issuanceId, holder } of holdersInMetaBlob(metaBlob, tracked)) {
+function onStreamTransaction(meta: DecodedMeta): void {
+  if (!meta) return;
+  for (const { issuanceId, holder } of holdersInMeta(meta, tracked)) {
     const key = `${issuanceId}|${holder}`;
     if (inScope.has(key) || pendingHolders.has(key)) continue;
     pendingHolders.add(key);
@@ -213,7 +215,7 @@ const tail = new LiveTail({
   source: tailSource,
   logger: log,
   deriveDeltas,
-  onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
+  onTransaction: (_ev, meta) => onStreamTransaction(meta),
   ...(highWater !== undefined ? { startLedger: highWater } : {}),
   onGap: async (range) => {
     // Heal by sweeping each issuer's account_tx over the gap range: one bounded,
@@ -226,7 +228,7 @@ const tail = new LiveTail({
         logger: log,
         deriveDeltas,
         // Discover holders that first appeared during the gap, same as the tail.
-        onEntry: (metaBlob) => onStreamTransaction(metaBlob),
+        onEntry: (meta) => onStreamTransaction(meta),
       }),
     );
   },

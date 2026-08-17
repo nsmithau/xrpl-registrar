@@ -1,7 +1,8 @@
-import type { Database, Queryable } from "../db/database.js";
+import type { Database } from "../db/database.js";
 import { LedgerTimeRepository } from "../db/repositories/ledgers.js";
 import { insertTransactionRows, type IngestTransaction } from "../db/repositories/transactions.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
+import { decodeMeta, type DecodedMeta, type DeriveDeltas } from "../reconcile/incremental.js";
 
 import { GapTracker } from "./gapTracker.js";
 import type { LedgerRange, TailSource, TransactionEvent } from "./types.js";
@@ -15,10 +16,11 @@ export interface LiveTailOptions {
   readonly onGap?: (range: LedgerRange) => Promise<void> | void;
   /** Derive a transaction's balance deltas as it is ingested, on the same DB
    * transaction (so `balance_deltas` stays current with the tail). Default: none. */
-  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
-  /** Called after each transaction is ingested (post-commit, fire-and-forget) —
-   * used for streaming new-holder discovery. Default: none. */
-  readonly onTransaction?: (ev: TransactionEvent) => void;
+  readonly deriveDeltas?: DeriveDeltas;
+  /** Called after each transaction is ingested (post-commit, fire-and-forget)
+   * with its already-decoded metadata — used for streaming new-holder discovery.
+   * Default: none. */
+  readonly onTransaction?: (ev: TransactionEvent, meta: DecodedMeta) => void;
   readonly logger?: Logger;
 }
 
@@ -55,8 +57,8 @@ export class LiveTail {
   readonly #source: TailSource;
   readonly #gaps: GapTracker;
   readonly #onGap: (range: LedgerRange) => Promise<void> | void;
-  readonly #deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
-  readonly #onTransaction: (ev: TransactionEvent) => void;
+  readonly #deriveDeltas: DeriveDeltas;
+  readonly #onTransaction: (ev: TransactionEvent, meta: DecodedMeta) => void;
   readonly #logger: Logger;
   readonly #ledgerTimes: LedgerTimeRepository;
 
@@ -91,12 +93,15 @@ export class LiveTail {
           await this.#onGap(gap);
         }
       } else {
+        // Decode the metadata once here and thread it to both delta derivation
+        // and streaming discovery, rather than decoding it in each.
+        const meta = decodeMeta(ev.metaBlob);
         await this.#db.transaction(async (t) => {
           await insertTransactionRows(t, eventToIngest(ev));
-          await this.#deriveDeltas(t, ev.hash, ev.metaBlob);
+          await this.#deriveDeltas(t, ev.hash, meta);
         });
         this.#ingested += 1;
-        this.#onTransaction(ev); // post-commit: streaming discovery, fire-and-forget
+        this.#onTransaction(ev, meta); // post-commit: streaming discovery, fire-and-forget
       }
     }
   }

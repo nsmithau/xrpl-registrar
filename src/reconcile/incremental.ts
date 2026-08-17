@@ -18,10 +18,28 @@ export interface TrackedIssuance {
   readonly issuer?: string | null;
 }
 
+/** A transaction's decoded metadata, or null for an empty/undecodable blob.
+ * Decoding is the CPU-dominant step of ingest, so it is done once per
+ * transaction and this shared object is threaded to every consumer. */
+export type DecodedMeta = Record<string, unknown> | null;
+
+/** Decode a stored `meta_blob` once. Returns null for an empty or undecodable
+ * blob so callers can skip cheaply — a single malformed blob is skipped (its raw
+ * bytes are retained and remain re-derivable) rather than crashing the ingest. */
+export function decodeMeta(metaBlob: Uint8Array): DecodedMeta {
+  if (metaBlob.length === 0) return null;
+  try {
+    return asRecord(decode(bytesToHex(metaBlob))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A hook the ingest paths call to derive a transaction's deltas as it lands,
  * on the same DB transaction as the insert (so rows and deltas commit together).
+ * Takes the already-decoded metadata (decoded once per transaction upstream).
  * The default is a no-op. */
-export type DeriveDeltas = (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+export type DeriveDeltas = (q: Queryable, hash: string, meta: DecodedMeta) => Promise<void>;
 
 export const noopDeriveDeltas: DeriveDeltas = () => Promise.resolve();
 
@@ -31,23 +49,22 @@ export function trackedIssuance(i: IssuanceRecord): TrackedIssuance {
 
 /**
  * Derive one transaction's per-account balance deltas across the given
- * issuances and upsert them on `q` (the caller's transaction). This is the
- * incremental counterpart to the batch `deriveMptDeltas`/`deriveIouDeltas`: it
- * lets every ingest path — backfill, live tail, gap heal — keep `balance_deltas`
- * current at ingest time, instead of a periodic full re-scan of all history.
+ * issuances (from already-decoded metadata) and upsert them on `q` (the
+ * caller's transaction). This is the incremental counterpart to the batch
+ * `deriveMptDeltas`/`deriveIouDeltas`: it lets every ingest path — backfill,
+ * live tail, gap heal — keep `balance_deltas` current at ingest time, instead of
+ * a periodic full re-scan of all history.
  *
  * Idempotent: a re-ingested transaction overwrites its deltas with the same
  * values. Returns the number of delta rows written.
  */
-export async function deriveTxDeltas(
+export async function deriveTxDeltasFromMeta(
   q: Queryable,
   issuances: readonly TrackedIssuance[],
   hash: string,
-  metaBlob: Uint8Array,
+  meta: DecodedMeta,
 ): Promise<number> {
-  if (issuances.length === 0 || metaBlob.length === 0) return 0;
-  const meta = asRecord(decode(bytesToHex(metaBlob)));
-  if (!meta) return 0;
+  if (issuances.length === 0 || !meta) return 0;
 
   let written = 0;
   for (const iss of issuances) {
@@ -61,6 +78,17 @@ export async function deriveTxDeltas(
     }
   }
   return written;
+}
+
+/** {@link deriveTxDeltasFromMeta} from a raw (undecoded) metadata blob — for
+ * callers that hold only bytes (batch re-derivation, tests). */
+export function deriveTxDeltas(
+  q: Queryable,
+  issuances: readonly TrackedIssuance[],
+  hash: string,
+  metaBlob: Uint8Array,
+): Promise<number> {
+  return deriveTxDeltasFromMeta(q, issuances, hash, decodeMeta(metaBlob));
 }
 
 /** A holder of a tracked issuance found in a transaction's metadata. */
@@ -127,5 +155,5 @@ export function holdersInMetaBlob(
  * set grows as issuances register). */
 export function deltaDeriver(issuances: readonly TrackedIssuance[] | (() => readonly TrackedIssuance[])): DeriveDeltas {
   const resolve = typeof issuances === "function" ? issuances : () => issuances;
-  return (q, hash, metaBlob) => deriveTxDeltas(q, resolve(), hash, metaBlob).then(() => undefined);
+  return (q, hash, meta) => deriveTxDeltasFromMeta(q, resolve(), hash, meta).then(() => undefined);
 }

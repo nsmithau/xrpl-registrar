@@ -1,11 +1,11 @@
 import type { Provenance } from "../clio/types.js";
 import { accountTxPages, type BinaryTxEntry } from "../backfill/pages.js";
-import { issuerSweepEntryMapper } from "../backfill/issuerSweep.js";
-import type { Database, Queryable } from "../db/database.js";
-import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
+import { issuerSweepEntryMapper, type MappedEntry } from "../backfill/issuerSweep.js";
+import type { Database } from "../db/database.js";
+import { insertTransactionRowsMany } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { type TrackedIssuance } from "../reconcile/incremental.js";
+import { type DecodedMeta, type DeriveDeltas, type TrackedIssuance } from "../reconcile/incremental.js";
 
 import type { LedgerRange } from "./types.js";
 
@@ -20,19 +20,19 @@ export interface BackfillGapOptions {
   readonly logger?: Logger;
   /** Derive a transaction's balance deltas as it is ingested, on the same DB
    * transaction as the insert. Default: none. */
-  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
-  /** Called per ingested transaction (post-commit) — runs streaming discovery
-   * over healed transactions, so a holder that first appeared during the gap is
-   * recorded and its pre-gap history backfilled, rather than waiting for the
-   * periodic safety-net scan. */
-  readonly onEntry?: (metaBlob: Uint8Array) => void;
+  readonly deriveDeltas?: DeriveDeltas;
+  /** Called per ingested transaction (post-commit) with its already-decoded
+   * metadata — runs streaming discovery over healed transactions, so a holder
+   * that first appeared during the gap is recorded and its pre-gap history
+   * backfilled, rather than waiting for the periodic safety-net scan. */
+  readonly onEntry?: (meta: DecodedMeta) => void;
   /** How many issuer sweeps to run concurrently (default 4). */
   readonly concurrency?: number;
   /** `account_tx` page size requested from upstream. */
   readonly pageLimit?: number;
   /** Override the entry → row mapping (defaults to decoding binary blobs and
    * scoping to tracked-issuance holders). Injectable for tests. */
-  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => IngestTransaction | null;
+  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null;
 }
 
 /**
@@ -80,22 +80,22 @@ export async function backfillGap(
       toLedger: range.toLedger,
       limit: options.pageLimit,
     })) {
-      const rows: IngestTransaction[] = [];
+      const batch: MappedEntry[] = [];
       for (const entry of page.entries) {
         const mapped = mapEntry(entry, issuer, page.provenance);
-        if (mapped) rows.push(mapped);
+        if (mapped) batch.push(mapped);
       }
-      if (rows.length === 0) continue;
+      if (batch.length === 0) continue;
 
       await db.transaction(async (t) => {
-        await insertTransactionRowsMany(t, rows);
-        for (const row of rows) {
-          await deriveDeltas(t, row.hash, row.metaBlob);
+        await insertTransactionRowsMany(t, batch.map((b) => b.row));
+        for (const b of batch) {
+          await deriveDeltas(t, b.row.hash, b.meta);
           count += 1;
         }
       });
       // Post-commit: streaming discovery over the healed transactions.
-      for (const row of rows) onEntry(row.metaBlob);
+      for (const b of batch) onEntry(b.meta);
       if (count - lastLogged >= HEAL_PROGRESS_EVERY) {
         lastLogged = count;
         logger.info("gap heal progress", { ingested: count });

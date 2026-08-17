@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ClioRequest } from "../../src/clio/types.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
-import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
+import type { MappedEntry } from "../../src/backfill/issuerSweep.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
 import { fakeReader } from "../discovery/fakes.js";
 
@@ -100,25 +100,29 @@ describe("backfillGap", () => {
         ],
       };
     });
-    // Keep only the in-scope entry; expose its meta_blob as the row's metaBlob.
-    const mapEntry = (entry: BinaryTxEntry, issuer: string): IngestTransaction | null =>
+    // Keep only the in-scope entry; carry the entry's meta_blob tag on the
+    // decoded meta so onEntry can be observed.
+    const mapEntry = (entry: BinaryTxEntry, issuer: string): MappedEntry | null =>
       entry.tx_blob === "IN"
         ? {
-            hash: "H1",
-            ledgerIndex: entry.ledger_index,
-            txType: "Payment",
-            mptIssuanceId: null,
-            txBlob: new Uint8Array(),
-            metaBlob: new TextEncoder().encode(entry.meta_blob),
-            provenance: PROV,
-            accounts: [issuer, "rA"],
+            row: {
+              hash: "H1",
+              ledgerIndex: entry.ledger_index,
+              txType: "Payment",
+              mptIssuanceId: null,
+              txBlob: new Uint8Array(),
+              metaBlob: new Uint8Array(),
+              provenance: PROV,
+              accounts: [issuer, "rA"],
+            },
+            meta: { tag: entry.meta_blob },
           }
         : null;
 
     const seen: string[] = [];
     const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 700, toLedger: 701 }, [], {
       mapEntry,
-      onEntry: (metaBlob) => seen.push(new TextDecoder().decode(metaBlob)),
+      onEntry: (meta) => seen.push((meta as { tag: string }).tag),
     });
 
     expect(n).toBe(1); // only the in-scope transaction

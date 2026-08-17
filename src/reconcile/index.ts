@@ -4,11 +4,14 @@ export { BalanceDeltaRepository, insertDelta, type DeltaRow } from "./balanceDel
 export { deriveMptDeltas, deriveIouDeltas } from "./deriver.js";
 export {
   deriveTxDeltas,
+  deriveTxDeltasFromMeta,
+  decodeMeta,
   deltaDeriver,
   trackedIssuance,
   holdersInMeta,
   holdersInMetaBlob,
   noopDeriveDeltas,
+  type DecodedMeta,
   type DeriveDeltas,
   type TrackedIssuance,
   type DetectedHolder,

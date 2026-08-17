@@ -2,11 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
-import { runIssuerBackfill } from "../../src/backfill/issuerSweep.js";
+import { runIssuerBackfill, type MappedEntry } from "../../src/backfill/issuerSweep.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { BackfillJobRepository, type BackfillJob } from "../../src/db/repositories/backfillJobs.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
-import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
 import { trackedIssuance } from "../../src/reconcile/index.js";
 import { fakeReader } from "../discovery/fakes.js";
 
@@ -16,18 +15,21 @@ const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:0
 
 /** Test mapper: an entry's meta_blob carries the holder address, tx_blob the
  * hash; "SKIP" filters the entry out (stands in for an off-scope transaction). */
-const mapEntry = (entry: BinaryTxEntry, issuer: string): IngestTransaction | null =>
+const mapEntry = (entry: BinaryTxEntry, issuer: string): MappedEntry | null =>
   entry.meta_blob === "SKIP"
     ? null
     : {
-        hash: entry.tx_blob,
-        ledgerIndex: entry.ledger_index,
-        txType: "Payment",
-        mptIssuanceId: null,
-        txBlob: new Uint8Array(),
-        metaBlob: new Uint8Array(),
-        provenance: PROV,
-        accounts: [issuer, entry.meta_blob],
+        row: {
+          hash: entry.tx_blob,
+          ledgerIndex: entry.ledger_index,
+          txType: "Payment",
+          mptIssuanceId: null,
+          txBlob: new Uint8Array(),
+          metaBlob: new Uint8Array(),
+          provenance: PROV,
+          accounts: [issuer, entry.meta_blob],
+        },
+        meta: null,
       };
 
 async function setup(db: Database, fromLedger = 0): Promise<{ tracked: ReturnType<typeof trackedIssuance>; job: BackfillJob }> {

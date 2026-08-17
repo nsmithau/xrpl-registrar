@@ -12,7 +12,7 @@ import { insertTransactionRowsMany, type IngestTransaction } from "../db/reposit
 import { asRecord } from "../discovery/fields.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { holdersInMeta, type TrackedIssuance } from "../reconcile/incremental.js";
+import { holdersInMeta, type DecodedMeta, type DeriveDeltas, type TrackedIssuance } from "../reconcile/incremental.js";
 import { hexToBytes } from "../util/hex.js";
 
 import { accountTxPages, type BinaryTxEntry } from "./pages.js";
@@ -20,9 +20,16 @@ import { accountTxPages, type BinaryTxEntry } from "./pages.js";
 /** Emit a running progress counter at most every this many transactions. */
 const PROGRESS_EVERY = 1000;
 
+/** A kept entry: the ingestable row plus its decoded metadata, decoded once and
+ * reused for both holder detection and delta derivation. */
+export interface MappedEntry {
+  readonly row: IngestTransaction;
+  readonly meta: DecodedMeta;
+}
+
 /**
- * Map a binary issuer `account_tx` entry to an ingestable row, keeping it only
- * if it touches a holder of one of `tracked`.
+ * Map a binary issuer `account_tx` entry to an ingestable row (with its decoded
+ * metadata), keeping it only if it touches a holder of one of `tracked`.
  *
  * Clio indexes all MPT/IOU activity against the issuer — including
  * holder-to-holder transfers where the issuer's own `AccountRoot` is untouched —
@@ -30,25 +37,30 @@ const PROGRESS_EVERY = 1000;
  * so `holdersInMeta` is a complete in-scope filter. The transaction is
  * associated with the issuer (mirroring Clio's own index) plus every
  * tracked-issuance holder it touches, so a single issuer sweep both discovers
- * holders and backfills their history. Shared by the tail's gap heal.
+ * holders and backfills their history. The metadata is decoded once here and
+ * returned so the caller need not decode it again to derive deltas. Shared by
+ * the tail's gap heal.
  */
 export function issuerSweepEntryMapper(
   tracked: readonly TrackedIssuance[],
-): (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => IngestTransaction | null {
+): (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null {
   return (entry, issuer, provenance) => {
-    const meta = asRecord(decode(entry.meta_blob));
+    const meta = asRecord(decode(entry.meta_blob)) ?? null;
     const holders = meta ? holdersInMeta(meta, tracked) : [];
     if (holders.length === 0) return null; // the issuer's unrelated / off-scope activity
     const tx = decode(entry.tx_blob) as { TransactionType?: string };
     return {
-      hash: hashes.hashSignedTx(entry.tx_blob),
-      ledgerIndex: entry.ledger_index,
-      txType: tx.TransactionType ?? "unknown",
-      mptIssuanceId: null,
-      txBlob: hexToBytes(entry.tx_blob),
-      metaBlob: hexToBytes(entry.meta_blob),
-      provenance,
-      accounts: [...new Set([issuer, ...holders.map((h) => h.holder)])],
+      row: {
+        hash: hashes.hashSignedTx(entry.tx_blob),
+        ledgerIndex: entry.ledger_index,
+        txType: tx.TransactionType ?? "unknown",
+        mptIssuanceId: null,
+        txBlob: hexToBytes(entry.tx_blob),
+        metaBlob: hexToBytes(entry.meta_blob),
+        provenance,
+        accounts: [...new Set([issuer, ...holders.map((h) => h.holder)])],
+      },
+      meta,
     };
   };
 }
@@ -57,12 +69,12 @@ export interface IssuerBackfillOptions {
   readonly logger?: Logger;
   /** Derive each transaction's balance deltas as it is ingested, on the same DB
    * transaction as the insert. Default: none. */
-  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+  readonly deriveDeltas?: DeriveDeltas;
   /** `account_tx` page size requested from upstream. */
   readonly pageLimit?: number;
   /** Override the entry → row mapping (defaults to decoding binary blobs and
    * scoping to tracked-issuance holders). Injectable for tests. */
-  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => IngestTransaction | null;
+  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null;
 }
 
 export interface IssuerBackfillResult {
@@ -112,12 +124,13 @@ export async function runIssuerBackfill(
       startMarker: job.lastMarker,
       limit: options.pageLimit,
     })) {
-      const rows: IngestTransaction[] = [];
+      const batch: MappedEntry[] = [];
       const firstLedger = new Map<string, number>();
       for (const entry of page.entries) {
-        const row = mapEntry(entry, issuer, page.provenance);
-        if (!row) continue;
-        rows.push(row);
+        const mapped = mapEntry(entry, issuer, page.provenance);
+        if (!mapped) continue;
+        batch.push(mapped);
+        const { row } = mapped;
         if (row.ledgerIndex > highWater) highWater = row.ledgerIndex;
         for (const account of row.accounts) {
           if (account === issuer) continue;
@@ -128,17 +141,17 @@ export async function runIssuerBackfill(
       const isFinal = page.marker === undefined;
 
       await db.transaction(async (t) => {
-        if (rows.length > 0) {
-          await insertTransactionRowsMany(t, rows);
-          for (const row of rows) {
-            await deriveDeltas(t, row.hash, row.metaBlob);
+        if (batch.length > 0) {
+          await insertTransactionRowsMany(t, batch.map((b) => b.row));
+          for (const b of batch) {
+            await deriveDeltas(t, b.row.hash, b.meta);
             ingested += 1;
           }
         }
         // Record holders discovered on this page atomically with the checkpoint,
         // so a resume never loses a discovery made before the crash.
         for (const [holder, ledger] of firstLedger) await recordHolder(t, issuance.id, holder, ledger);
-        await checkpointJob(t, job.id, page.marker, rows.length);
+        await checkpointJob(t, job.id, page.marker, batch.length);
         if (isFinal) {
           await claimCoverage(t, issuance.id, issuer, fromLedger, highWater);
           await completeJob(t, job.id);

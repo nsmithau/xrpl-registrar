@@ -1,5 +1,5 @@
 import type { Provenance } from "../clio/types.js";
-import type { Database, Queryable } from "../db/database.js";
+import type { Database } from "../db/database.js";
 import {
   BackfillJobRepository,
   checkpointJob,
@@ -9,6 +9,7 @@ import {
 import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
+import { decodeMeta, type DeriveDeltas } from "../reconcile/incremental.js";
 
 import { mapBinaryEntry } from "./mapEntry.js";
 import { accountTxPages, type BinaryTxEntry } from "./pages.js";
@@ -34,7 +35,7 @@ export interface BackfillWorkerOptions {
   /** Derive each transaction's balance deltas as it is ingested, on the same DB
    * transaction as the insert (so backfilled history has deltas without a
    * separate full re-scan). Default: none. */
-  readonly deriveDeltas?: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+  readonly deriveDeltas?: DeriveDeltas;
 }
 
 /**
@@ -56,7 +57,7 @@ export class BackfillWorker {
   readonly #pageLimit: number | undefined;
   readonly #concurrency: number;
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
-  readonly #deriveDeltas: (q: Queryable, hash: string, metaBlob: Uint8Array) => Promise<void>;
+  readonly #deriveDeltas: DeriveDeltas;
   readonly jobs: BackfillJobRepository;
   /** Session-wide running total of transactions ingested, for the throttled
    * progress counter (shared across concurrently-backfilled accounts). */
@@ -100,7 +101,7 @@ export class BackfillWorker {
           // Batch the page's rows (one multi-row statement per table), then derive
           // deltas per transaction (the rows exist, so the delta FK is satisfied).
           await insertTransactionRowsMany(t, mapped);
-          for (const m of mapped) await this.#deriveDeltas(t, m.hash, m.metaBlob);
+          for (const m of mapped) await this.#deriveDeltas(t, m.hash, decodeMeta(m.metaBlob));
           await checkpointJob(t, job.id, page.marker, page.entries.length);
           if (isFinal) {
             await completeJob(t, job.id);
