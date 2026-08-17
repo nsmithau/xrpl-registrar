@@ -24,12 +24,10 @@ export class BalanceDeltaRepository {
   }
 
   /** Upsert a batch of deltas for an issuance in one transaction. Ensures the
-   * account row exists first (deltas reference accounts). */
+   * account rows exist first (deltas reference accounts). */
   async upsertMany(issuanceId: number, rows: readonly DeltaRow[]): Promise<void> {
     if (rows.length === 0) return;
-    await this.#db.transaction(async (tx) => {
-      for (const row of rows) await insertDelta(tx, issuanceId, row);
-    });
+    await this.#db.transaction((tx) => insertDeltasMany(tx, issuanceId, rows));
   }
 
   /** Summed integer (MPT) balance per account, derived from the deltas. */
@@ -67,14 +65,41 @@ export class BalanceDeltaRepository {
 /** Upsert one delta on a caller-supplied transaction/connection, ensuring the
  * account row exists first. Idempotent on (hash, address, issuance_id). */
 export async function insertDelta(tx: Queryable, issuanceId: number, row: DeltaRow): Promise<void> {
+  await insertDeltasMany(tx, issuanceId, [row]);
+}
+
+/**
+ * Upsert a batch of deltas for one issuance on a caller-supplied transaction in
+ * two multi-row statements — one for the referenced `accounts`, one for the
+ * `balance_deltas` — instead of two statements per row. On single-threaded
+ * PGlite that turns a transaction touching N accounts from 2N serialized
+ * round-trips into 2. Idempotent on (hash, address, issuance_id).
+ */
+export async function insertDeltasMany(
+  tx: Queryable,
+  issuanceId: number,
+  rows: readonly DeltaRow[],
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const addresses = [...new Set(rows.map((r) => r.address))];
   await tx.query(
-    `INSERT INTO accounts (address) VALUES ($1) ON CONFLICT (address) DO NOTHING`,
-    [row.address],
+    `INSERT INTO accounts (address) VALUES ${addresses.map((_, i) => `($${i + 1})`).join(", ")}
+     ON CONFLICT (address) DO NOTHING`,
+    addresses,
   );
+
+  const params: unknown[] = [issuanceId];
+  const tuples = rows.map((r) => {
+    const h = params.push(r.hash);
+    const a = params.push(r.address);
+    const d = params.push(r.delta.toString());
+    return `($${h}, $${a}, $1, $${d})`;
+  });
   await tx.query(
     `INSERT INTO balance_deltas (hash, address, issuance_id, delta)
-     VALUES ($1, $2, $3, $4)
+     VALUES ${tuples.join(", ")}
      ON CONFLICT (hash, address, issuance_id) DO UPDATE SET delta = EXCLUDED.delta`,
-    [row.hash, row.address, issuanceId, row.delta.toString()],
+    params,
   );
 }

@@ -5,7 +5,7 @@ import type { IssuanceRecord } from "../db/repositories/issuances.js";
 import { asRecord, asString } from "../discovery/fields.js";
 import { bytesToHex } from "../util/hex.js";
 
-import { insertDelta } from "./balanceDeltas.js";
+import { insertDeltasMany } from "./balanceDeltas.js";
 import { holderInfo, iouDeltas } from "./iou.js";
 import { mptDeltas } from "./mptDeltas.js";
 
@@ -72,10 +72,13 @@ export async function deriveTxDeltasFromMeta(
       iss.kind === "mpt"
         ? mptDeltas(meta, iss.mptIssuanceId ?? "")
         : iouDeltas(meta, iss.currency ?? "", iss.issuer ?? "");
-    for (const d of deltas) {
-      await insertDelta(q, iss.id, { hash, address: d.account, delta: d.delta });
-      written += 1;
-    }
+    if (deltas.length === 0) continue;
+    await insertDeltasMany(
+      q,
+      iss.id,
+      deltas.map((d) => ({ hash, address: d.account, delta: d.delta })),
+    );
+    written += deltas.length;
   }
   return written;
 }
