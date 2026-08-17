@@ -72,7 +72,25 @@ describe("reporting extensions", () => {
   it("archive_deltas nets change per account over a ledger range", async () => {
     const res = await api.handle({ command: "archive_deltas", mpt_issuance_id: MPT, from_ledger: 150, to_ledger: 300, api_version: 2 });
     expect(res.result.status).toBe("success");
+    expect(res.result.mpt_issuance_id).toBe(MPT); // identity echoed above the range
     expect(res.result.deltas).toEqual([{ account: "rA", delta: "25" }]); // only T2 in range
+  });
+
+  it("archive_deltas resolves \"validated\" to the archive's latest ledger", async () => {
+    const res = await api.handle({ command: "archive_deltas", mpt_issuance_id: MPT, from_ledger: 1, to_ledger: "validated", api_version: 2 });
+    expect(res.result.status).toBe("success");
+    expect(res.result.to_ledger).toBe(200); // latest transaction ledger
+    expect(res.result.deltas).toEqual([{ account: "rA", delta: "35" }]); // T1 + T2 netted
+  });
+
+  it("archive_transactions itemises each balance change to its transaction", async () => {
+    const res = await api.handle({ command: "archive_transactions", mpt_issuance_id: MPT, from_ledger: 1, to_ledger: "validated", api_version: 2 });
+    expect(res.result.status).toBe("success");
+    expect(res.result.mpt_issuance_id).toBe(MPT);
+    expect(res.result.transactions).toEqual([
+      { account: "rA", delta: "10", ledger: 100, hash: "T1" },
+      { account: "rA", delta: "25", ledger: 200, hash: "T2" },
+    ]);
   });
 
   it("resolves the issuance by its local issuance_id (uniform across kinds)", async () => {

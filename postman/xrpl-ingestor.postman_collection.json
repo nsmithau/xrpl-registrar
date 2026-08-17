@@ -260,7 +260,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -346,7 +346,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -432,7 +432,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -464,6 +464,49 @@
           ]
         },
         {
+          "name": "archive_transactions — itemised per transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "The itemised balance-changing transactions over `[from_ledger, to_ledger]`: one `transactions[]` entry per (transaction, account) with `account`, signed `delta`, `ledger`, and `hash` (oldest first). Where `archive_deltas` gives the net per account, this traces each change to its transaction. Add `account` to scope to one holder."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "archive_balance_at — by issuance_id",
           "request": {
             "method": "POST",
@@ -475,7 +518,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"issuance_id\": \"{{issuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"issuance_id\": \"{{issuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -518,7 +561,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_balance_at\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"account\": \"{{account}}\",\n      \"ledger_index\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -561,7 +604,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": 20000000,\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

@@ -17,6 +17,36 @@ import { rangeBeyondCoverageWarning } from "../warnings.js";
 interface ResolvedIssuance {
   readonly id: number;
   readonly kind: "mpt" | "iou";
+  readonly mptIssuanceId: string | null;
+  readonly currency: string | null;
+  readonly issuer: string | null;
+}
+
+type IssuanceRow = {
+  id: number | string;
+  kind: "mpt" | "iou";
+  mpt_issuance_id: string | null;
+  currency: string | null;
+  issuer_account: string | null;
+};
+
+const ISSUANCE_COLS = "id, kind, mpt_issuance_id, currency, issuer_account";
+
+function toIssuance(r: IssuanceRow): ResolvedIssuance {
+  return {
+    id: Number(r.id),
+    kind: r.kind,
+    mptIssuanceId: r.mpt_issuance_id,
+    currency: r.currency,
+    issuer: r.issuer_account,
+  };
+}
+
+/** The issuance's native identifier, echoed in reporting responses. */
+function issuanceIdentity(iss: ResolvedIssuance): Record<string, unknown> {
+  return iss.kind === "mpt"
+    ? { mpt_issuance_id: iss.mptIssuanceId }
+    : { currency: iss.currency, issuer: iss.issuer };
 }
 
 function asNum(value: unknown): number | undefined {
@@ -37,44 +67,63 @@ async function resolveIssuance(db: Database, req: ApiRequest): Promise<ResolvedI
   // remain the canonical, reproducible way to name an issuance.
   const issuanceId = asIssuanceId(req.issuance_id);
   if (issuanceId !== undefined) {
-    const { rows } = await db.query<{ id: number | string; kind: "mpt" | "iou" }>(
-      "SELECT id, kind FROM issuances WHERE id = $1",
+    const { rows } = await db.query<IssuanceRow>(
+      `SELECT ${ISSUANCE_COLS} FROM issuances WHERE id = $1`,
       [issuanceId],
     );
-    return rows.length ? { id: Number(rows[0]!.id), kind: rows[0]!.kind } : null;
+    return rows.length ? toIssuance(rows[0]!) : null;
   }
 
   const mpt = typeof req.mpt_issuance_id === "string" ? req.mpt_issuance_id : undefined;
   if (mpt) {
-    const { rows } = await db.query<{ id: number | string }>(
-      "SELECT id FROM issuances WHERE mpt_issuance_id = $1",
+    const { rows } = await db.query<IssuanceRow>(
+      `SELECT ${ISSUANCE_COLS} FROM issuances WHERE mpt_issuance_id = $1`,
       [mpt],
     );
-    return rows.length ? { id: Number(rows[0]!.id), kind: "mpt" } : null;
+    return rows.length ? toIssuance(rows[0]!) : null;
   }
   const currency = typeof req.currency === "string" ? req.currency : undefined;
   const issuer = typeof req.issuer === "string" ? req.issuer : undefined;
   if (currency && issuer) {
     // Match the normalisation applied at registration: accept the readable code
     // or the 40-hex form, comparing against the stored readable code.
-    const { rows } = await db.query<{ id: number | string }>(
-      "SELECT id FROM issuances WHERE kind = 'iou' AND currency = $1 AND issuer_account = $2",
+    const { rows } = await db.query<IssuanceRow>(
+      `SELECT ${ISSUANCE_COLS} FROM issuances WHERE kind = 'iou' AND currency = $1 AND issuer_account = $2`,
       [currencyToString(currency), issuer],
     );
-    return rows.length ? { id: Number(rows[0]!.id), kind: "iou" } : null;
+    return rows.length ? toIssuance(rows[0]!) : null;
   }
   return null;
 }
 
-/** Resolve a point in time to a ledger index: an explicit `ledgerKey` wins,
- * otherwise a `timeKey` ISO timestamp is mapped to the ledger in effect then. */
+/** The latest ledger the archive holds a transaction in — what `"validated"`
+ * resolves to. Null when the archive is empty. */
+async function archiveLatestLedger(db: Database): Promise<number | null> {
+  const { rows } = await db.query<{ hi: number | string | null }>(
+    "SELECT max(ledger_index) AS hi FROM transactions",
+  );
+  const hi = rows[0]?.hi;
+  return hi === null || hi === undefined ? null : Number(hi);
+}
+
+/**
+ * Resolve a point in time to a ledger index: `"validated"`/`"current"`/`"latest"`
+ * → the archive's latest ledger; an explicit numeric `ledgerKey`; or a `timeKey`
+ * ISO timestamp mapped to the ledger in effect then.
+ */
 async function resolveLedger(
   db: Database,
   req: ApiRequest,
   ledgerKey: string,
   timeKey: string,
 ): Promise<{ ledger: number } | { error: string }> {
-  const explicit = asNum(req[ledgerKey]);
+  const raw = req[ledgerKey];
+  if (raw === "validated" || raw === "current" || raw === "latest") {
+    const latest = await archiveLatestLedger(db);
+    if (latest === null) return { error: "the archive holds no transactions yet" };
+    return { ledger: latest };
+  }
+  const explicit = asNum(raw);
   if (explicit !== undefined) return { ledger: explicit };
   const time = typeof req[timeKey] === "string" ? req[timeKey] : undefined;
   if (time) {
@@ -82,7 +131,7 @@ async function resolveLedger(
     if (ledger === null) return { error: `no ledger recorded at or before ${time}` };
     return { ledger };
   }
-  return { error: `'${ledgerKey}' (number) or '${timeKey}' (ISO timestamp) is required` };
+  return { error: `'${ledgerKey}' (a number or "validated") or '${timeKey}' (ISO timestamp) is required` };
 }
 
 async function inIssuanceScope(db: Database, issuanceId: number, address: string): Promise<boolean> {
@@ -133,20 +182,29 @@ export async function handleBalanceAt(
   }
 
   return {
-    result: { status: "success", account, ledger_index: ledger, balance, validated: true },
+    result: {
+      status: "success",
+      ...issuanceIdentity(issuance),
+      account,
+      ledger_index: ledger,
+      balance,
+      validated: true,
+    },
     extraWarnings,
   };
 }
 
-/**
- * `archive_deltas` — net balance change per account over a ledger range
- * `[from_ledger, to_ledger]` for an issuance. Optionally scoped to one account.
- */
-export async function handleDeltas(
+/** Shared setup for the range-scoped reporting methods: resolve the issuance and
+ * the `[from, to]` ledger range, and build the `balance_deltas` filter. Returns
+ * `{ result }` on any failure (to surface directly), otherwise the query parts. */
+async function resolveRange(
   db: Database,
   scope: ScopeRepository,
   req: ApiRequest,
-): Promise<MethodResult> {
+): Promise<
+  | { result: Record<string, unknown> }
+  | { issuance: ResolvedIssuance; from: number; to: number; params: unknown[]; accountFilter: string }
+> {
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
 
@@ -154,32 +212,87 @@ export async function handleDeltas(
   if ("error" in fromResolved) return { result: invalidParams(fromResolved.error) };
   const toResolved = await resolveLedger(db, req, "to_ledger", "to_time");
   if ("error" in toResolved) return { result: invalidParams(toResolved.error) };
-  const from = fromResolved.ledger;
-  const to = toResolved.ledger;
-  const account = typeof req.account === "string" ? req.account : undefined;
 
-  const params: unknown[] = [issuance.id, from, to];
+  const account = typeof req.account === "string" ? req.account : undefined;
+  const params: unknown[] = [issuance.id, fromResolved.ledger, toResolved.ledger];
   let accountFilter = "";
   if (account) {
     params.push(account);
     accountFilter = "AND bd.address = $4";
   }
+  return { issuance, from: fromResolved.ledger, to: toResolved.ledger, params, accountFilter };
+}
+
+/**
+ * `archive_deltas` — net balance change per account over a ledger range
+ * `[from_ledger, to_ledger]` for an issuance. Optionally scoped to one account.
+ * (For the itemised, per-transaction changes, use `archive_transactions`.)
+ */
+export async function handleDeltas(
+  db: Database,
+  scope: ScopeRepository,
+  req: ApiRequest,
+): Promise<MethodResult> {
+  const r = await resolveRange(db, scope, req);
+  if ("result" in r) return { result: r.result };
 
   const { rows } = await db.query<{ address: string; net: string }>(
     `SELECT bd.address AS address, sum(bd.delta::numeric)::text AS net
      FROM balance_deltas bd
      JOIN transactions t ON t.hash = bd.hash
-     WHERE bd.issuance_id = $1 AND t.ledger_index BETWEEN $2 AND $3 ${accountFilter}
+     WHERE bd.issuance_id = $1 AND t.ledger_index BETWEEN $2 AND $3 ${r.accountFilter}
      GROUP BY bd.address ORDER BY bd.address`,
-    params,
+    r.params,
   );
 
   return {
     result: {
       status: "success",
-      from_ledger: from,
-      to_ledger: to,
-      deltas: rows.map((r) => ({ account: r.address, delta: r.net })),
+      ...issuanceIdentity(r.issuance),
+      from_ledger: r.from,
+      to_ledger: r.to,
+      deltas: rows.map((row) => ({ account: row.address, delta: row.net })),
+      validated: true,
+    },
+  };
+}
+
+/**
+ * `archive_transactions` — the itemised balance-changing transactions for an
+ * issuance over a ledger range: one entry per (transaction, account) with the
+ * account, signed delta, ledger, and transaction hash, oldest first. Optionally
+ * scoped to one account. Where `archive_deltas` gives the net per account, this
+ * traces each change to the transaction that caused it.
+ */
+export async function handleTransactions(
+  db: Database,
+  scope: ScopeRepository,
+  req: ApiRequest,
+): Promise<MethodResult> {
+  const r = await resolveRange(db, scope, req);
+  if ("result" in r) return { result: r.result };
+
+  const { rows } = await db.query<{ address: string; delta: string; ledger: number | string; hash: string }>(
+    `SELECT bd.address AS address, bd.delta AS delta, t.ledger_index AS ledger, bd.hash AS hash
+     FROM balance_deltas bd
+     JOIN transactions t ON t.hash = bd.hash
+     WHERE bd.issuance_id = $1 AND t.ledger_index BETWEEN $2 AND $3 ${r.accountFilter}
+     ORDER BY t.ledger_index, bd.address`,
+    r.params,
+  );
+
+  return {
+    result: {
+      status: "success",
+      ...issuanceIdentity(r.issuance),
+      from_ledger: r.from,
+      to_ledger: r.to,
+      transactions: rows.map((row) => ({
+        account: row.address,
+        delta: row.delta,
+        ledger: Number(row.ledger),
+        hash: row.hash,
+      })),
       validated: true,
     },
   };

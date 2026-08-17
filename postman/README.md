@@ -30,9 +30,11 @@ At minimum set `adminToken`, and set `mptIssuanceId` + `account` (or
 - **Admin API (authenticated)** — register / list / inspect / pause / resume
   issuances. Bearer auth (`{{adminToken}}`) is applied at the folder level.
   *Register MPT issuance* saves the returned id into `{{issuanceId}}`.
-- **Reporting extensions (`archive_*`)** — `archive_balance_at` and
-  `archive_deltas`, by ledger **or** by time. Served from the read API over HTTP
-  JSON-RPC; `api_version: 2` is included on every request.
+- **Reporting extensions (`archive_*`)** — `archive_balance_at`,
+  `archive_deltas` (net per account), and `archive_transactions` (itemised
+  per-transaction changes), by ledger **or** by time (`"validated"` = latest).
+  Served from the read API over HTTP JSON-RPC; `api_version: 2` is included on
+  every request.
 - **Archive reads (Clio-compatible)** — `mpt_holders` and `account_tx`. These
   mirror Clio exactly and are **not** specific to this tool (any Clio/xrpl.js
   client works against the read port); included to show the fail-closed scope
