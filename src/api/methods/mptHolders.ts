@@ -30,7 +30,8 @@ export async function handleMptHolders(
     return { result: notInArchive(`MPT issuance ${mptId}`, await scope.summarize()) };
   }
   const issuanceId = Number(tracked.rows[0]!.id);
-  const upTo = typeof req.ledger_index === "number" ? req.ledger_index : Number.MAX_SAFE_INTEGER;
+  const requested = typeof req.ledger_index === "number" ? req.ledger_index : undefined;
+  const upTo = requested ?? Number.MAX_SAFE_INTEGER;
 
   // Every transaction touching an in-scope account for this issuance, deduped
   // by hash (a transaction may touch several in-scope accounts).
@@ -43,14 +44,45 @@ export async function handleMptHolders(
     [issuanceId, upTo],
   );
   const entries = decodeMetaEntries(rows);
-  const holders = toMptHolders(entries, mptId);
+  const all = toMptHolders(entries, mptId);
+
+  // Clio paginates `mpt_holders` (default page 50, marker on overflow). Order by
+  // the MPToken object id for a stable cursor and echo `limit`/`marker` so a
+  // paginating Clio/xrpl.js client works unchanged.
+  const limit = Math.max(1, Math.min(400, typeof req.limit === "number" ? req.limit : 50));
+  const marker = typeof req.marker === "string" ? req.marker : undefined;
+  const ordered = all
+    .slice()
+    .sort((a, b) => (a.mptoken_index < b.mptoken_index ? -1 : a.mptoken_index > b.mptoken_index ? 1 : 0));
+  const after = marker ? ordered.filter((h) => h.mptoken_index > marker) : ordered;
+  const page = after.slice(0, limit);
+  const nextMarker = after.length > limit ? page[page.length - 1]!.mptoken_index : undefined;
+
+  // The ledger this holdership is as of: the requested ledger, else the archive's
+  // latest validated ledger (so the client learns the snapshot's point in time).
+  const ledgerIndex = requested ?? (await latestLedger(db));
 
   return {
     result: {
       status: "success",
       mpt_issuance_id: mptId,
-      mptokens: holders,
+      ledger_index: ledgerIndex,
+      limit,
+      mptokens: page,
+      ...(nextMarker !== undefined ? { marker: nextMarker } : {}),
       validated: true,
     },
   };
+}
+
+/** The archive's latest validated ledger: the tail's high-water if it has run,
+ * else the newest ledger any archived transaction lands in. */
+async function latestLedger(db: Database): Promise<number> {
+  const { rows } = await db.query<{ hi: number | string | null }>(
+    `SELECT max(hi) AS hi FROM (
+       SELECT max(ledger_index) AS hi FROM ledgers
+       UNION ALL SELECT max(ledger_index) FROM transactions
+     ) x`,
+  );
+  return rows[0]?.hi != null ? Number(rows[0]!.hi) : 0;
 }
