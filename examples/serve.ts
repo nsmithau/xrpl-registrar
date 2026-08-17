@@ -1,14 +1,14 @@
 /**
  * Run the archive as a Clio-compatible server you can hit with xrpl.js,
  * Postman, or curl. Serves the existing archive over HTTP JSON-RPC and
- * WebSocket; register issuances via the admin API. Node-state methods (e.g.
- * server_info) forward upstream so xrpl.js can connect.
+ * WebSocket and keeps it current; it never auto-ingests — register issuances via
+ * the admin API. Node-state methods (e.g. server_info) forward upstream so
+ * xrpl.js can connect. The guided testnet tour that ingests a sample issuance is
+ * `pnpm demo`.
  *
  *   CLIO_ENDPOINT=wss://<testnet-clio> ADMIN_TOKEN=secret pnpm serve
  *
- * Optional: MPT_ISSUANCE_ID=<hex> to auto-populate one MPT on first run (for a
- * one-off; the guided testnet tour is `pnpm demo`). PORT=<port>,
- * DATABASE_DIR=<dir> (persist).
+ * Optional: PORT=<port>, DATABASE_DIR=<dir> (persist).
  */
 import {
   ActivityRegistry,
@@ -27,7 +27,6 @@ import {
   createClioClient,
   decodeMptIssuer,
   deltaDeriver,
-  discover,
   holdersInMetaBlob,
   ingestIssuance,
   loadConfig,
@@ -36,10 +35,6 @@ import {
   type TrackedIssuance,
 } from "../src/index.js";
 
-// Optional convenience: if MPT_ISSUANCE_ID is set, serve populates that one MPT
-// on first run. Unset (the default), serve does not auto-ingest anything —
-// register issuances via the admin API. (The guided testnet tour is `pnpm demo`.)
-const MPT = process.env.MPT_ISSUANCE_ID?.toUpperCase();
 const PORT = Number(process.env.PORT ?? 51234);
 // Safety-net full re-scan interval (0 disables). Streaming discovery is primary;
 // this only backstops holders missed during a tail gap. Default 1 hour.
@@ -126,31 +121,10 @@ const refreshTracked = async (): Promise<void> => {
 };
 const deriveDeltas = deltaDeriver(() => tracked);
 
-// Populate the archive for the configured MPT (if any), unless already tracked.
-// With no MPT_ISSUANCE_ID set, serve auto-ingests nothing and just serves what
-// is already in the archive (register issuances via the admin API).
-if (MPT) {
-  const existing = await db.query("SELECT id FROM issuances WHERE mpt_issuance_id = $1", [MPT]);
-  if (existing.rows.length === 0) {
-    console.log(`Populating archive for MPT ${MPT}…`);
-    const res = await activity.track("discovery", `discovering ${MPT}`, () =>
-      discover(client, { kind: "mpt", mptIssuanceId: MPT, strategy: "authorization" }, { logger: log }),
-    );
-    const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
-    await new AccountRepository(db).recordDiscovered(issuance.id, res.accounts);
-    const from = Math.min(...res.accounts.map((a) => a.firstAcquisitionLedger ?? 0).filter(Boolean));
-    const worker = new BackfillWorker({ client, db, deriveDeltas: deltaDeriver([trackedIssuance(issuance)]) });
-    await worker.enqueue(issuance.id, res.accounts.map((a) => a.address), from);
-    const { processed } = await activity.track("backfill", `backfilling ${MPT}`, () =>
-      worker.runIssuance(issuance.id),
-    );
-    console.log(`Discovered ${res.accounts.length} account(s), backfilled ${processed} job(s).`);
-  } else {
-    console.log(`MPT ${MPT} already in archive; serving existing data.`);
-  }
-} else {
-  console.log("No MPT_ISSUANCE_ID set — serving the existing archive; register issuances via the admin API.");
-}
+// serve never auto-populates: it serves whatever is already in the archive and
+// keeps it current. Register issuances via the admin API; the guided testnet
+// tour that ingests a sample issuance is `pnpm demo`.
+console.log("Serving the existing archive; register issuances via the admin API.");
 
 // The tail and gap heal derive deltas for whatever issuances are tracked now.
 await refreshTracked();
@@ -304,7 +278,7 @@ console.log(`  HTTP JSON-RPC: http://127.0.0.1:${bound}`);
 console.log(`\nExample (HTTP JSON-RPC):`);
 console.log(
   `  curl -s http://127.0.0.1:${bound} -H 'content-type: application/json' \\\n` +
-    `    -d '{"method":"mpt_holders","params":[{"mpt_issuance_id":"${MPT ?? "<mpt_issuance_id>"}","api_version":2}]}'`,
+    `    -d '{"method":"mpt_holders","params":[{"mpt_issuance_id":"<mpt_issuance_id>","api_version":2}]}'`,
 );
 // Admin port (authenticated), enabled when ADMIN_TOKEN is set. Registering an
 // issuance here triggers discovery + backfill + derivation in the background.
