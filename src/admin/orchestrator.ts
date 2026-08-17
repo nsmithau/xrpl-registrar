@@ -1,4 +1,3 @@
-import { captureCloseTimes } from "../backfill/closeTimes.js";
 import { runIssuerBackfill } from "../backfill/issuerSweep.js";
 import type { Database } from "../db/database.js";
 import { AccountRepository } from "../db/repositories/accounts.js";
@@ -71,9 +70,10 @@ export async function ingestIssuance(
     processed = 1;
   }
 
-  // Capture close times for the ledgers we ingested, enabling time-based
-  // reporting later.
-  await captureCloseTimes(client, db, issuance.id);
+  // Close times are no longer captured eagerly here (one upstream `ledger` call
+  // per in-scope ledger, whether or not anyone queries by time). Time-based
+  // reporting resolves them lazily on demand (see lazyLedgerTimeResolver), and
+  // the live tail records them forward as it runs.
 
   const deltaRows = await new BalanceDeltaRepository(db).count(issuance.id);
   const discovered = await new AccountRepository(db).countForIssuance(issuance.id);

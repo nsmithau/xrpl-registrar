@@ -1,5 +1,10 @@
 export { ArchiveApi, type ArchiveApiOptions } from "./handler.js";
 export {
+  tableLedgerTimeResolver,
+  lazyLedgerTimeResolver,
+  type LedgerTimeResolver,
+} from "./ledgerTime.js";
+export {
   ClioForwarder,
   DisabledForwarder,
   type Forwarder,

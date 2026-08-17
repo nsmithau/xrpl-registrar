@@ -31,6 +31,7 @@ import {
   holdersInMeta,
   ingestIssuance,
   issuerOf,
+  lazyLedgerTimeResolver,
   loadConfig,
   openArchiveDatabase,
   runIssuerBackfill,
@@ -133,7 +134,13 @@ console.log("Serving the existing archive; register issuances via the admin API.
 // The tail and gap heal derive deltas for whatever issuances are tracked now.
 await refreshTracked();
 
-const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
+const api = new ArchiveApi({
+  db,
+  forwarder: new ClioForwarder(client),
+  // Resolve time-based reporting queries lazily against Clio, caching probed
+  // close times — no eager per-ledger capture at registration.
+  resolveLedgerTime: lazyLedgerTimeResolver(client, db),
+});
 const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: log });
 const bound = await server.start();
 

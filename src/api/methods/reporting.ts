@@ -1,7 +1,7 @@
 import type { Database } from "../../db/database.js";
-import { LedgerTimeRepository } from "../../db/repositories/ledgers.js";
 import { currencyToString } from "../../xrpl/currency.js";
 import { invalidParams, notInArchive } from "../errors.js";
+import type { LedgerTimeResolver } from "../ledgerTime.js";
 import type { ScopeRepository } from "../scope.js";
 import type { ApiRequest, MethodResult } from "../types.js";
 import { rangeBeyondCoverageWarning } from "../warnings.js";
@@ -116,6 +116,7 @@ async function resolveLedger(
   req: ApiRequest,
   ledgerKey: string,
   timeKey: string,
+  resolveTime: LedgerTimeResolver,
 ): Promise<{ ledger: number } | { error: string }> {
   const raw = req[ledgerKey];
   if (raw === "validated" || raw === "current" || raw === "latest") {
@@ -127,7 +128,7 @@ async function resolveLedger(
   if (explicit !== undefined) return { ledger: explicit };
   const time = typeof req[timeKey] === "string" ? req[timeKey] : undefined;
   if (time) {
-    const ledger = await new LedgerTimeRepository(db).resolveAtOrBefore(time);
+    const ledger = await resolveTime(time);
     if (ledger === null) return { error: `no ledger recorded at or before ${time}` };
     return { ledger };
   }
@@ -151,6 +152,7 @@ export async function handleBalanceAt(
   db: Database,
   scope: ScopeRepository,
   req: ApiRequest,
+  resolveTime: LedgerTimeResolver,
 ): Promise<MethodResult> {
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
@@ -158,7 +160,7 @@ export async function handleBalanceAt(
   const account = typeof req.account === "string" ? req.account : undefined;
   if (!account) return { result: invalidParams("'account' is required") };
 
-  const resolved = await resolveLedger(db, req, "ledger_index", "date");
+  const resolved = await resolveLedger(db, req, "ledger_index", "date", resolveTime);
   if ("error" in resolved) return { result: invalidParams(resolved.error) };
   const ledger = resolved.ledger;
 
@@ -201,6 +203,7 @@ async function resolveRange(
   db: Database,
   scope: ScopeRepository,
   req: ApiRequest,
+  resolveTime: LedgerTimeResolver,
 ): Promise<
   | { result: Record<string, unknown> }
   | { issuance: ResolvedIssuance; from: number; to: number; params: unknown[]; accountFilter: string }
@@ -208,9 +211,9 @@ async function resolveRange(
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
 
-  const fromResolved = await resolveLedger(db, req, "from_ledger", "from_time");
+  const fromResolved = await resolveLedger(db, req, "from_ledger", "from_time", resolveTime);
   if ("error" in fromResolved) return { result: invalidParams(fromResolved.error) };
-  const toResolved = await resolveLedger(db, req, "to_ledger", "to_time");
+  const toResolved = await resolveLedger(db, req, "to_ledger", "to_time", resolveTime);
   if ("error" in toResolved) return { result: invalidParams(toResolved.error) };
 
   const account = typeof req.account === "string" ? req.account : undefined;
@@ -232,8 +235,9 @@ export async function handleDeltas(
   db: Database,
   scope: ScopeRepository,
   req: ApiRequest,
+  resolveTime: LedgerTimeResolver,
 ): Promise<MethodResult> {
-  const r = await resolveRange(db, scope, req);
+  const r = await resolveRange(db, scope, req, resolveTime);
   if ("result" in r) return { result: r.result };
 
   const { rows } = await db.query<{ address: string; net: string }>(
@@ -268,8 +272,9 @@ export async function handleTransactions(
   db: Database,
   scope: ScopeRepository,
   req: ApiRequest,
+  resolveTime: LedgerTimeResolver,
 ): Promise<MethodResult> {
-  const r = await resolveRange(db, scope, req);
+  const r = await resolveRange(db, scope, req, resolveTime);
   if ("result" in r) return { result: r.result };
 
   const { rows } = await db.query<{ address: string; delta: string; ledger: number | string; hash: string }>(

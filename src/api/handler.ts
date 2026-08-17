@@ -6,6 +6,7 @@ import { DisabledForwarder, type Forwarder } from "./forwarder.js";
 import { handleAccountInfo, handleAccountLines } from "./methods/accountState.js";
 import { handleAccountTx } from "./methods/accountTx.js";
 import { handleMptHolders } from "./methods/mptHolders.js";
+import { tableLedgerTimeResolver, type LedgerTimeResolver } from "./ledgerTime.js";
 import { handleBalanceAt, handleDeltas, handleTransactions } from "./methods/reporting.js";
 import { handleTx } from "./methods/tx.js";
 import { ScopeRepository } from "./scope.js";
@@ -35,6 +36,10 @@ export interface ArchiveApiOptions {
   /** Forward out-of-scope account reads instead of failing closed. Default
    * false — the archive fails closed. */
   readonly forwardUnknownAccounts?: boolean;
+  /** Resolve a timestamp to a ledger for the time-based reporting methods.
+   * Defaults to the cached `ledgers` table only; serve injects a lazy resolver
+   * that fetches historical close times on demand. */
+  readonly resolveLedgerTime?: LedgerTimeResolver;
   readonly logger?: Logger;
 }
 
@@ -50,6 +55,7 @@ export class ArchiveApi {
   readonly #scope: ScopeRepository;
   readonly #forwarder: Forwarder;
   readonly #forwardUnknown: boolean;
+  readonly #resolveLedgerTime: LedgerTimeResolver;
   readonly #logger: Logger;
 
   constructor(options: ArchiveApiOptions) {
@@ -57,6 +63,7 @@ export class ArchiveApi {
     this.#scope = new ScopeRepository(options.db);
     this.#forwarder = options.forwarder ?? new DisabledForwarder();
     this.#forwardUnknown = options.forwardUnknownAccounts ?? false;
+    this.#resolveLedgerTime = options.resolveLedgerTime ?? tableLedgerTimeResolver(options.db);
     this.#logger = options.logger ?? nullLogger;
   }
 
@@ -70,10 +77,10 @@ export class ArchiveApi {
     if (REPORTING.has(cmd)) {
       const mr =
         cmd === "archive_balance_at"
-          ? await handleBalanceAt(this.#db, this.#scope, req)
+          ? await handleBalanceAt(this.#db, this.#scope, req, this.#resolveLedgerTime)
           : cmd === "archive_transactions"
-            ? await handleTransactions(this.#db, this.#scope, req)
-            : await handleDeltas(this.#db, this.#scope, req);
+            ? await handleTransactions(this.#db, this.#scope, req, this.#resolveLedgerTime)
+            : await handleDeltas(this.#db, this.#scope, req, this.#resolveLedgerTime);
       return this.#localFrom(mr);
     }
 

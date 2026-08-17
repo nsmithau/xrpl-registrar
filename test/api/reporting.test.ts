@@ -69,6 +69,15 @@ describe("reporting extensions", () => {
     expect(res.result.error).toBe("invalidParams");
   });
 
+  it("uses an injected ledger-time resolver for date queries (lazy resolution)", async () => {
+    // A resolver that maps any time to ledger 200 (past both deltas) — proving the
+    // reporting path consults the injected resolver, not just the cached table.
+    const lazy = new ArchiveApi({ db, resolveLedgerTime: () => Promise.resolve(200) });
+    const res = await lazy.handle({ command: "archive_balance_at", mpt_issuance_id: MPT, account: "rA", date: "2026-12-01T00:00:00Z", api_version: 2 });
+    expect(res.result.ledger_index).toBe(200);
+    expect(res.result.balance).toBe("35"); // T1 + T2, both at/under ledger 200
+  });
+
   it("archive_deltas nets change per account over a ledger range", async () => {
     const res = await api.handle({ command: "archive_deltas", mpt_issuance_id: MPT, from_ledger: 150, to_ledger: 300, api_version: 2 });
     expect(res.result.status).toBe("success");
