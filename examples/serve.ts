@@ -133,7 +133,9 @@ const api = new ArchiveApi({ db, forwarder: new ClioForwarder(client) });
 const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: log });
 const bound = await server.start();
 
-let tail: LiveTail | undefined;
+// Forward-declared: the streaming-discovery closures below reference it before
+// it is created; assigned once when the tail starts.
+// eslint-disable-next-line prefer-const
 let tailSource: XrplTailSource | undefined;
 
 // The WebSocket subscribes to holders *and* each issuance's issuer: new-holder-
@@ -190,42 +192,42 @@ function onStreamTransaction(metaBlob: Uint8Array): void {
 }
 await seedInScope();
 
-// Live tail: keep the archive current, anchoring the gap tracker at the backfill
-// high-water so a restart only heals the small recent gap.
+// Live tail: keep the archive current. Started unconditionally — even on an
+// empty archive — so issuances registered later via the admin API are picked up
+// live (onRegistered calls tailSource.setAccounts to subscribe them); a guard on
+// "subs is non-empty" would leave a fresh server with no tail. Anchor the gap
+// tracker at the backfill/observed high-water so a restart heals only the small
+// recent gap.
 const subs = await subscriptionSet();
-if (subs.length > 0) {
-  // Anchor at the latest ledger observed by either backfill (coverage) or a
-  // prior tail run (ledgers), so a restart only heals the small recent gap.
-  const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
-  const led = await db.query<{ hi: number | string | null }>("SELECT max(ledger_index) AS hi FROM ledgers");
-  const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
-  const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
-  const highWater = Math.max(covHi, ledHi) || undefined;
-  tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: subs, reader: client });
-  tail = new LiveTail({
-    db,
-    source: tailSource,
-    logger: log,
-    deriveDeltas,
-    onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
-    ...(highWater !== undefined ? { startLedger: highWater } : {}),
-    onGap: async (range) => {
-      // Heal against the current subscription set (holders + issuers), which the
-      // issuer entry makes cover new-holder activity missed during the gap.
-      const healSet = await subscriptionSet();
-      await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
-        backfillGap(client, db, healSet, range, {
-          logger: log,
-          deriveDeltas,
-          // Discover holders that first appeared during the gap, same as the tail.
-          onEntry: (metaBlob) => onStreamTransaction(metaBlob),
-        }),
-      );
-    },
-  });
-  void tail.run();
-  console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`);
-}
+const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
+const led = await db.query<{ hi: number | string | null }>("SELECT max(ledger_index) AS hi FROM ledgers");
+const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
+const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
+const highWater = Math.max(covHi, ledHi) || undefined;
+tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: subs, reader: client });
+const tail = new LiveTail({
+  db,
+  source: tailSource,
+  logger: log,
+  deriveDeltas,
+  onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
+  ...(highWater !== undefined ? { startLedger: highWater } : {}),
+  onGap: async (range) => {
+    // Heal against the current subscription set (holders + issuers), which the
+    // issuer entry makes cover new-holder activity missed during the gap.
+    const healSet = await subscriptionSet();
+    await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
+      backfillGap(client, db, healSet, range, {
+        logger: log,
+        deriveDeltas,
+        // Discover holders that first appeared during the gap, same as the tail.
+        onEntry: (metaBlob) => onStreamTransaction(metaBlob),
+      }),
+    );
+  },
+});
+void tail.run();
+console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`);
 
 // Resume any interrupted backfill on startup: a prior run may have left pending
 // (never reached), running (crashed), or failed (transient upstream) jobs.
@@ -314,7 +316,7 @@ console.log(`\nPress Ctrl-C to stop.`);
 process.on("SIGINT", () => {
   void (async () => {
     if (rediscoverTimer) clearInterval(rediscoverTimer);
-    tail?.stop();
+    tail.stop();
     if (tailSource) await tailSource.close();
     await server.stop();
     if (adminServer) await adminServer.stop();
