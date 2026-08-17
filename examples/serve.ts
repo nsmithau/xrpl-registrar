@@ -213,11 +213,13 @@ const tail = new LiveTail({
   onTransaction: (ev) => onStreamTransaction(ev.metaBlob),
   ...(highWater !== undefined ? { startLedger: highWater } : {}),
   onGap: async (range) => {
-    // Heal against the current subscription set (holders + issuers), which the
-    // issuer entry makes cover new-holder activity missed during the gap.
-    const healSet = await subscriptionSet();
+    // Heal by sweeping each issuer's account_tx over the gap range: one bounded,
+    // paginated call per issuer captures every holder and every issuance on it
+    // (Clio indexes MPT/IOU activity, including holder-to-holder payments,
+    // against the issuer), instead of a request per gap ledger or per holder.
+    const issuers = issuerAddresses(tracked);
     await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
-      backfillGap(client, db, healSet, range, {
+      backfillGap(client, db, issuers, range, tracked, {
         logger: log,
         deriveDeltas,
         // Discover holders that first appeared during the gap, same as the tail.

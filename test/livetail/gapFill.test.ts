@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { BinaryTxEntry } from "../../src/backfill/pages.js";
 import type { IngestTransaction } from "../../src/db/repositories/transactions.js";
-import type { ClioReader } from "../../src/discovery/types.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
 import { fakeReader } from "../discovery/fakes.js";
 
@@ -20,48 +20,55 @@ describe("backfillGap", () => {
     await db.close();
   });
 
-  it("fetches each ledger in the gap range, not one request per account", async () => {
+  it("sweeps account_tx on the issuer over the gap range, not one request per ledger", async () => {
     const requests: ClioRequest[] = [];
     const client = fakeReader((req) => {
       requests.push(req);
-      return { ledger: { transactions: [] } }; // empty ledgers: exercise the loop, not decoding
+      return { transactions: [] }; // empty: exercise the request shape, not decoding
     });
 
-    // Two accounts, four ledgers → four requests (independent of account count).
-    const n = await backfillGap(client, db, ["rA", "rB"], { fromLedger: 500, toLedger: 503 });
+    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 900 }, []);
 
     expect(n).toBe(0);
-    // Fetched with bounded concurrency, so completion order is not guaranteed.
-    expect(requests.map((r) => Number(r.ledger_index)).sort((a, b) => a - b)).toEqual([500, 501, 502, 503]);
-    for (const req of requests) {
-      expect(req.command).toBe("ledger");
-      expect(req.transactions).toBe(true);
-      expect(req.expand).toBe(true);
-      expect(req.binary).toBe(true);
-    }
+    // A single account_tx call bracketed by the gap range — independent of how
+    // many ledgers (401 here) the gap spans.
+    expect(requests).toHaveLength(1);
+    const [req] = requests;
+    expect(req!.command).toBe("account_tx");
+    expect(req!.account).toBe("rIssuer");
+    expect(req!.ledger_index_min).toBe(500);
+    expect(req!.ledger_index_max).toBe(900);
+    expect(req!.binary).toBe(true);
   });
 
-  it("fetches gap ledgers with bounded concurrency, not one at a time", async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const client: ClioReader = {
-      request: (async () => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await new Promise((r) => setTimeout(r, 5));
-        inFlight -= 1;
-        return { result: { ledger: { transactions: [] } }, forwarded: false, warnings: [], provenance: PROV, raw: { result: {} } };
-      }) as unknown as ClioReader["request"],
-    };
+  it("one sweep per issuer covers every issuance on it (three MPTs, one issuer → one call)", async () => {
+    const accounts: string[] = [];
+    const client = fakeReader((req) => {
+      accounts.push(String(req.account));
+      return { transactions: [] };
+    });
 
-    await backfillGap(client, db, ["rA"], { fromLedger: 1, toLedger: 10 }, { concurrency: 3 });
+    // Three tracked MPTs sharing one issuer; a second issuer for a fourth.
+    await backfillGap(client, db, ["rIssuerA", "rIssuerB"], { fromLedger: 1, toLedger: 10 }, []);
 
-    expect(maxInFlight).toBeGreaterThan(1); // actually parallel …
-    expect(maxInFlight).toBeLessThanOrEqual(3); // … but bounded by the pool
+    expect(accounts.sort()).toEqual(["rIssuerA", "rIssuerB"]); // one call each, not per-MPT
   });
 
-  it("logs a start and completion line, not a line per ledger, so a heal is never silent", async () => {
-    const client = fakeReader(() => ({ ledger: { transactions: [] } }));
+  it("pages the sweep until the issuer is exhausted", async () => {
+    let calls = 0;
+    const client = fakeReader(() => {
+      calls += 1;
+      // Two pages: first returns a marker, second (no marker) ends the sweep.
+      return calls === 1 ? { transactions: [], marker: { ledger: 5, seq: 0 } } : { transactions: [] };
+    });
+
+    await backfillGap(client, db, ["rIssuer"], { fromLedger: 1, toLedger: 100 }, []);
+
+    expect(calls).toBe(2);
+  });
+
+  it("logs a start and completion line, not a line per page, so a heal is never silent", async () => {
+    const client = fakeReader(() => ({ transactions: [] }));
     const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
     const logger = {
       info: (message: string, meta?: Record<string, unknown>) => logs.push({ message, ...(meta ? { meta } : {}) }),
@@ -69,12 +76,11 @@ describe("backfillGap", () => {
       error: () => {},
     };
 
-    await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 800 }, { logger });
+    await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 800 }, [], { logger });
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
     expect(messages).toContain("gap heal finished");
-    // Progress is a throttled running counter, never one line per ledger.
     expect(messages.filter((m) => m === "gap heal progress")).toHaveLength(0);
     const finished = logs.find((l) => l.message === "gap heal finished");
     expect(finished?.meta?.["ingested"]).toBe(0);
@@ -82,37 +88,36 @@ describe("backfillGap", () => {
   });
 
   it("ingests only in-scope transactions and runs onEntry per healed transaction", async () => {
-    await db.query("INSERT INTO accounts (address) VALUES ('rA') ON CONFLICT DO NOTHING");
-    // One ledger with two transactions; a stub mapTx stands in for binary decode.
+    await db.query("INSERT INTO accounts (address) VALUES ('rIssuer') ON CONFLICT DO NOTHING");
+    // One page with two entries; a stub mapEntry stands in for binary decode +
+    // holder-scope filtering.
     const client = fakeReader((req: ClioRequest) => {
-      if (req.command !== "ledger") return {};
+      if (req.command !== "account_tx") return {};
       return {
-        ledger: {
-          transactions: [
-            { tx_blob: "IN", meta_blob: "m1", hash: "H1" }, // in scope
-            { tx_blob: "OUT", meta_blob: "m2", hash: "H2" }, // filtered out
-          ],
-        },
+        transactions: [
+          { tx_blob: "IN", meta_blob: "m1", ledger_index: 700 }, // in scope
+          { tx_blob: "OUT", meta_blob: "m2", ledger_index: 701 }, // filtered out
+        ],
       };
     });
     // Keep only the in-scope entry; expose its meta_blob as the row's metaBlob.
-    const mapTx = (entry: { tx_blob?: string; meta_blob?: string; hash?: string }): IngestTransaction | null =>
+    const mapEntry = (entry: BinaryTxEntry, issuer: string): IngestTransaction | null =>
       entry.tx_blob === "IN"
         ? {
-            hash: entry.hash!,
-            ledgerIndex: 500,
+            hash: "H1",
+            ledgerIndex: entry.ledger_index,
             txType: "Payment",
             mptIssuanceId: null,
             txBlob: new Uint8Array(),
-            metaBlob: new TextEncoder().encode(entry.meta_blob ?? ""),
+            metaBlob: new TextEncoder().encode(entry.meta_blob),
             provenance: PROV,
-            accounts: ["rA"],
+            accounts: [issuer, "rA"],
           }
         : null;
 
     const seen: string[] = [];
-    const n = await backfillGap(client, db, ["rA"], { fromLedger: 500, toLedger: 500 }, {
-      mapTx,
+    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 700, toLedger: 701 }, [], {
+      mapEntry,
       onEntry: (metaBlob) => seen.push(new TextDecoder().decode(metaBlob)),
     });
 
