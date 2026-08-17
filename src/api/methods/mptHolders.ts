@@ -33,14 +33,19 @@ export async function handleMptHolders(
   const requested = typeof req.ledger_index === "number" ? req.ledger_index : undefined;
   const upTo = requested ?? Number.MAX_SAFE_INTEGER;
 
-  // Every transaction touching an in-scope account for this issuance, deduped
-  // by hash (a transaction may touch several in-scope accounts).
+  // Every transaction touching an in-scope account for this issuance. Dedup on
+  // `hash` via an issuance-scoped subquery (a transaction may touch several
+  // in-scope accounts) rather than SELECT DISTINCT over the large `meta_blob`
+  // bytea; the outer select then reads each transaction once by its primary key.
   const { rows } = await db.query<MetaRow>(
-    `SELECT DISTINCT t.hash, t.meta_blob, t.ledger_index
+    `SELECT t.hash, t.meta_blob, t.ledger_index
      FROM transactions t
-     JOIN account_transactions at ON at.hash = t.hash
-     JOIN account_issuance ai ON ai.address = at.address
-     WHERE ai.issuance_id = $1 AND t.ledger_index <= $2`,
+     WHERE t.hash IN (
+       SELECT at.hash
+       FROM account_transactions at
+       JOIN account_issuance ai ON ai.address = at.address
+       WHERE ai.issuance_id = $1
+     ) AND t.ledger_index <= $2`,
     [issuanceId, upTo],
   );
   const entries = decodeMetaEntries(rows);
