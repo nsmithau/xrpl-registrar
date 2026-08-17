@@ -37,9 +37,9 @@ export interface BackfillSummary {
 export interface IssuanceStatus {
   readonly issuance: IssuanceRecord;
   readonly accounts: number;
-  /** Distinct transactions archived for this issuance's accounts. */
+  /** Distinct transactions that affected this issuance's balances. */
   readonly transactions: number;
-  /** Highest ledger any of this issuance's transactions is in, or null. */
+  /** Highest ledger a transaction affecting this issuance landed in, or null. */
   readonly latestLedger: number | null;
   readonly backfill: BackfillSummary;
   /** Conservative coverage: the ledger range over which every in-scope account
@@ -147,13 +147,20 @@ export class AdminApi {
     };
   }
 
+  /**
+   * Transactions that affected *this* issuance's balances, and the latest ledger
+   * one landed in. Scoped via `balance_deltas` (keyed by `issuance_id`), not via
+   * `account_transactions` — an account may hold several issuances from the same
+   * issuer, so joining through it would attribute one issuance's transactions to
+   * every issuance its accounts touch (making sibling MPTs report the same
+   * counts and latest ledger).
+   */
   async #transactionStats(id: number): Promise<{ count: number; latestLedger: number | null }> {
     const { rows } = await this.#db.query<{ c: number | string; hi: number | string | null }>(
-      `SELECT count(DISTINCT t.hash) AS c, max(t.ledger_index) AS hi
-       FROM transactions t
-       JOIN account_transactions at ON at.hash = t.hash
-       JOIN account_issuance ai ON ai.address = at.address
-       WHERE ai.issuance_id = $1`,
+      `SELECT count(DISTINCT bd.hash) AS c, max(t.ledger_index) AS hi
+       FROM balance_deltas bd
+       JOIN transactions t ON t.hash = bd.hash
+       WHERE bd.issuance_id = $1`,
       [id],
     );
     const hi = rows[0]?.hi;

@@ -52,6 +52,8 @@ describe("AdminApi", () => {
     const txns = new TransactionRepository(db);
     await txns.ingest({ hash: "T1", ledgerIndex: 120, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rA"] });
     await txns.ingest({ hash: "T2", ledgerIndex: 190, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rB"] });
+    // Per-issuance transaction stats are scoped via balance_deltas (issuance_id).
+    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('T1','rA',$1,'10'),('T2','rB',$1,'20')", [iss.id]);
     await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1,$2,$3,$4)", ["rA", 100, 200, "t"]);
     await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'completed',5)", ["rA", iss.id]);
     await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'running',2)", ["rB", iss.id]);
@@ -64,6 +66,30 @@ describe("AdminApi", () => {
     expect(status.backfill).toMatchObject({ completed: 1, running: 1, totalTx: 7 });
     expect(status.coverage).toEqual({ min: 100, max: 200 });
     expect(status.lastReconciliation).toMatchObject({ passed: true, discrepancies: 0 });
+  });
+
+  it("scopes transaction stats per issuance even when issuances share a holder/issuer", async () => {
+    const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
+    const a = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A" });
+    const b = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_B" });
+    const accounts = new AccountRepository(db);
+    // One holder, in scope for both issuances (as when two MPTs share an issuer).
+    await accounts.recordDiscovered(a.id, [{ address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 }]);
+    await accounts.recordDiscovered(b.id, [{ address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 }]);
+    const txns = new TransactionRepository(db);
+    await txns.ingest({ hash: "TA", ledgerIndex: 100, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: ["rShared"] });
+    await txns.ingest({ hash: "TB", ledgerIndex: 200, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: prov, accounts: ["rShared"] });
+    // TA affected only A's balance; TB only B's — the per-issuance signal.
+    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TA','rShared',$1,'10')", [a.id]);
+    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TB','rShared',$1,'20')", [b.id]);
+
+    const sa = (await api.getIssuance(a.id))!;
+    const sb = (await api.getIssuance(b.id))!;
+    // Each issuance reports its own latest ledger, not the shared holder's global max.
+    expect(sa.latestLedger).toBe(100);
+    expect(sb.latestLedger).toBe(200);
+    expect(sa.transactions).toBe(1);
+    expect(sb.transactions).toBe(1);
   });
 
   it("reports conservative coverage: the range covered by every account, not the envelope", async () => {
