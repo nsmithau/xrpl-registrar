@@ -13,7 +13,7 @@ of `balance_deltas` over *every* archived transaction.
 This did not scale. For an IOU issuance with ~4.4k accounts and ~2.2M
 transactions, each pass re-decoded all 2.2M transaction metadata blobs every
 interval. Worse, it was also a **correctness** problem: delta-based reporting
-(`archive_balance_at` / `archive_deltas`) was stale between passes — a balance
+(`archive_balance_at` / `archive_transactions`) was stale between passes — a balance
 received via the live tail read `0` even though `account_lines` (reconstructed
 live from metadata) returned it correctly — and coverage froze at the backfill
 snapshot, understating completeness.

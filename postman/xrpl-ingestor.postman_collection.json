@@ -335,178 +335,6 @@
           ]
         },
         {
-          "name": "archive_deltas — by ledger range",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
-            },
-            "description": "Net balance change per account over `[from_ledger, to_ledger]` for an issuance. Omit `account` for every account; include it to scope to one."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
-                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "archive_deltas — by time range",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_time\": \"2026-01-01T00:00:00Z\",\n      \"to_time\": \"2026-04-01T00:00:00Z\",\n      \"api_version\": 2\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
-            },
-            "description": "Same, but the range is given as ISO `from_time` / `to_time`, each resolved to the ledger in effect at or before it."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
-                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "archive_deltas — single account",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
-            },
-            "description": "Net delta for one account over a ledger range."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
-                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "archive_transactions — itemised per transaction",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
-            },
-            "description": "The itemised balance-changing transactions over `[from_ledger, to_ledger]`: one `transactions[]` entry per (transaction, account) with `account`, signed `delta`, `ledger`, and `hash` (oldest first). Where `archive_deltas` gives the net per account, this traces each change to its transaction. Add `account` to scope to one holder."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
-                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
           "name": "archive_balance_at — by issuance_id",
           "request": {
             "method": "POST",
@@ -593,7 +421,7 @@
           ]
         },
         {
-          "name": "archive_deltas — IOU (currency + issuer)",
+          "name": "archive_transactions — by account",
           "request": {
             "method": "POST",
             "header": [
@@ -604,7 +432,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"method\": \"archive_deltas\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"account\": \"{{account}}\",\n      \"api_version\": 2\n    }\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -620,7 +448,136 @@
                 ""
               ]
             },
-            "description": "Net IOU balance change per account over a ledger range, identified by currency + issuer."
+            "description": "Every balance-changing transaction for one account of an issuance. With no range the bounds default to `[0, latest]` (all history). One `transactions[]` entry per (transaction, account): `account`, signed `delta`, `ledger`, `hash`, oldest first."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_transactions — by ledger range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Balance-changing transactions for an issuance over `[from_ledger, to_ledger]` (`to_ledger` may be `\"validated\"` = the archive's latest ledger). Add `account` to scope to one holder."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_transactions — by date range",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"mpt_issuance_id\": \"{{mptIssuanceId}}\",\n      \"from_time\": \"2026-01-01T00:00:00Z\",\n      \"to_time\": \"2026-04-01T00:00:00Z\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Same, but the range is given as ISO `from_time` / `to_time`, each resolved to the ledger in effect at that time."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200)', () => pm.response.to.have.status(200));",
+                  "pm.test('success', () => pm.expect(pm.response.json().result.status).to.eql('success'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "archive_transactions — IOU (currency + issuer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"archive_transactions\",\n  \"params\": [\n    {\n      \"currency\": \"{{currency}}\",\n      \"issuer\": \"{{issuer}}\",\n      \"from_ledger\": 19000000,\n      \"to_ledger\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": [
+                "{{readUrl}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "IOU variant: identify the issuance by `currency` + `issuer` instead of `mpt_issuance_id`. Filters are the same (`account`, ledger range, or date range)."
           },
           "event": [
             {

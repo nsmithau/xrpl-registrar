@@ -87,7 +87,7 @@ The account set is **append-only**: accounts that ever held the token are never 
 | Class | Methods | Behaviour |
 |-------|---------|-----------|
 | Archive-scoped reads | `account_tx`, `tx`, `account_info`, `account_lines`, `mpt_holders` | Served from the archive, scope-checked. Out-of-scope → `notInArchive`; honest coverage ranges. |
-| Reporting extensions | `archive_balance_at`, `archive_deltas`, `archive_transactions` | Namespaced (not Clio-shaped). Point-in-time balances, net deltas per account, and the itemised per-transaction changes — by ledger **or by time**, exact for MPT and IOU. |
+| Reporting extensions | `archive_balance_at`, `archive_transactions` | Namespaced (not Clio-shaped). Point-in-time balances and the itemised per-transaction balance changes — by account, ledger range, **or** date range, exact for MPT and IOU. |
 | Node state | `server_info`, `fee`, `ledger` | Forwarded to a configured upstream. |
 | Submission | `submit`, `submit_multisigned` | Forwarded. |
 
@@ -114,7 +114,7 @@ curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
   -d '{"method":"archive_balance_at","params":[{"issuance_id":1,"account":"r...","ledger_index":20000000,"api_version":2}]}'
 ```
 
-`archive_balance_at` accepts `ledger_index` or `date`; `archive_deltas` and `archive_transactions` accept `from_ledger`/`to_ledger` or `from_time`/`to_time`. Any ledger field also accepts `"validated"` (the archive's latest ledger). `archive_deltas` returns the **net** change per account; `archive_transactions` returns one entry per (transaction, account) — `account`, signed `delta`, `ledger`, `hash` — tracing each change to the transaction that caused it.
+`archive_balance_at` accepts `ledger_index` or `date`. `archive_transactions` returns one entry per (transaction, account) — `account`, signed `delta`, `ledger`, `hash`, oldest first — and is filterable by `account`, by ledger range (`from_ledger`/`to_ledger`), and by date range (`from_time`/`to_time`), each optional and combinable; with no range it returns all history. Any ledger field also accepts `"validated"` (the archive's latest ledger).
 
 A [Postman collection](postman/) covering the Admin API and the `archive_*` reporting extensions ships under [`postman/`](postman/README.md) — import it, set `adminToken` and an issuance, and register/query the archive from Postman as you would a Clio server.
 

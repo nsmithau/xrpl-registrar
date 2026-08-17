@@ -148,7 +148,8 @@ CREATE INDEX ledgers_close_time_idx ON ledgers (close_time_iso);
 const PERF_INDEXES = /* sql */ `
 -- countForIssuance, coverage join, transaction stats, backfill progress.
 CREATE INDEX account_issuance_issuance_idx ON account_issuance (issuance_id);
--- archive_balance_at / archive_deltas sums, and the reconciler's per-account sums.
+-- archive_balance_at sums, archive_transactions scans, per-issuance transaction
+-- stats, and the reconciler's per-account sums.
 CREATE INDEX balance_deltas_issuance_addr_idx ON balance_deltas (issuance_id, address);
 -- The backfill claim loop selects the next pending job per issuance once per
 -- account (thousands of times per backfill); make each claim an index scan.

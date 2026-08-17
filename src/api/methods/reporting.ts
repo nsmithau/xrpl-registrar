@@ -109,7 +109,8 @@ async function archiveLatestLedger(db: Database): Promise<number | null> {
 /**
  * Resolve a point in time to a ledger index: `"validated"`/`"current"`/`"latest"`
  * → the archive's latest ledger; an explicit numeric `ledgerKey`; or a `timeKey`
- * ISO timestamp mapped to the ledger in effect then.
+ * ISO timestamp mapped to the ledger in effect then. When neither is given, use
+ * `fallback` if provided (making the bound optional), otherwise error.
  */
 async function resolveLedger(
   db: Database,
@@ -117,6 +118,7 @@ async function resolveLedger(
   ledgerKey: string,
   timeKey: string,
   resolveTime: LedgerTimeResolver,
+  fallback?: number,
 ): Promise<{ ledger: number } | { error: string }> {
   const raw = req[ledgerKey];
   if (raw === "validated" || raw === "current" || raw === "latest") {
@@ -132,6 +134,7 @@ async function resolveLedger(
     if (ledger === null) return { error: `no ledger recorded at or before ${time}` };
     return { ledger };
   }
+  if (fallback !== undefined) return { ledger: fallback };
   return { error: `'${ledgerKey}' (a number or "validated") or '${timeKey}' (ISO timestamp) is required` };
 }
 
@@ -196,9 +199,12 @@ export async function handleBalanceAt(
   };
 }
 
-/** Shared setup for the range-scoped reporting methods: resolve the issuance and
- * the `[from, to]` ledger range, and build the `balance_deltas` filter. Returns
- * `{ result }` on any failure (to surface directly), otherwise the query parts. */
+/** Resolve the issuance and the `[from, to]` ledger range for `archive_transactions`,
+ * and build the `balance_deltas` filter. The range bounds are **optional**: a
+ * missing lower bound defaults to 0 (earliest) and a missing upper bound to the
+ * archive's latest ledger, so the method can be queried by issuance + account
+ * alone, by ledger range, by date range (`from_time`/`to_time`), or any mix.
+ * Returns `{ result }` on failure (to surface directly), otherwise the query parts. */
 async function resolveRange(
   db: Database,
   scope: ScopeRepository,
@@ -211,9 +217,10 @@ async function resolveRange(
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
 
-  const fromResolved = await resolveLedger(db, req, "from_ledger", "from_time", resolveTime);
+  const latest = (await archiveLatestLedger(db)) ?? 0;
+  const fromResolved = await resolveLedger(db, req, "from_ledger", "from_time", resolveTime, 0);
   if ("error" in fromResolved) return { result: invalidParams(fromResolved.error) };
-  const toResolved = await resolveLedger(db, req, "to_ledger", "to_time", resolveTime);
+  const toResolved = await resolveLedger(db, req, "to_ledger", "to_time", resolveTime, latest);
   if ("error" in toResolved) return { result: invalidParams(toResolved.error) };
 
   const account = typeof req.account === "string" ? req.account : undefined;
@@ -227,46 +234,12 @@ async function resolveRange(
 }
 
 /**
- * `archive_deltas` — net balance change per account over a ledger range
- * `[from_ledger, to_ledger]` for an issuance. Optionally scoped to one account.
- * (For the itemised, per-transaction changes, use `archive_transactions`.)
- */
-export async function handleDeltas(
-  db: Database,
-  scope: ScopeRepository,
-  req: ApiRequest,
-  resolveTime: LedgerTimeResolver,
-): Promise<MethodResult> {
-  const r = await resolveRange(db, scope, req, resolveTime);
-  if ("result" in r) return { result: r.result };
-
-  const { rows } = await db.query<{ address: string; net: string }>(
-    `SELECT bd.address AS address, sum(bd.delta::numeric)::text AS net
-     FROM balance_deltas bd
-     JOIN transactions t ON t.hash = bd.hash
-     WHERE bd.issuance_id = $1 AND t.ledger_index BETWEEN $2 AND $3 ${r.accountFilter}
-     GROUP BY bd.address ORDER BY bd.address`,
-    r.params,
-  );
-
-  return {
-    result: {
-      status: "success",
-      ...issuanceIdentity(r.issuance),
-      from_ledger: r.from,
-      to_ledger: r.to,
-      deltas: rows.map((row) => ({ account: row.address, delta: row.net })),
-      validated: true,
-    },
-  };
-}
-
-/**
  * `archive_transactions` — the itemised balance-changing transactions for an
- * issuance over a ledger range: one entry per (transaction, account) with the
- * account, signed delta, ledger, and transaction hash, oldest first. Optionally
- * scoped to one account. Where `archive_deltas` gives the net per account, this
- * traces each change to the transaction that caused it.
+ * issuance: one entry per (transaction, account) with the account, signed delta,
+ * ledger, and transaction hash, oldest first. Filterable by `account`, by ledger
+ * range (`from_ledger`/`to_ledger`), and by date range (`from_time`/`to_time`) —
+ * each optional and combinable. Unlike a net-per-account aggregate, this traces
+ * every balance change to the transaction that caused it.
  */
 export async function handleTransactions(
   db: Database,

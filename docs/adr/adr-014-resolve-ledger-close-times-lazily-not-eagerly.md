@@ -2,8 +2,8 @@
 
 ## Context
 
-Time-based reporting (`archive_balance_at` by `date`, `archive_deltas` /
-`archive_transactions` by `from_time`/`to_time`) needs a timestamp → ledger
+Time-based reporting (`archive_balance_at` by `date`, `archive_transactions` by
+`from_time`/`to_time`) needs a timestamp → ledger
 mapping, which comes from ledger close times. These were captured eagerly: after
 every backfill, one upstream `ledger` call per distinct in-scope ledger. For a
 token with a long history that is O(ledgers) calls — the dominant upstream load
