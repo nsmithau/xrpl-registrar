@@ -187,7 +187,10 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
   inScope.add(`${issuanceId}|${holder}`);
   const worker = new BackfillWorker({ client, db, deriveDeltas });
   await worker.enqueue(issuanceId, [holder], 0);
-  await activity.track("backfill", `new holder ${holder}`, () => worker.runIssuance(issuanceId));
+  // Streaming discovery: the tail spotted a holder not yet in scope and is
+  // bringing it in. Tracked as "discovery" (the bulk issuer sweep is "backfill"),
+  // so the dashboard's discovery indicator reflects live new-holder detection.
+  await activity.track("discovery", `new holder ${holder}`, () => worker.runIssuance(issuanceId));
   if (tailSource) await tailSource.setAccounts(await subscriptionSet());
   log.info("new holder tracked from stream", { issuanceId, holder });
 }

@@ -291,7 +291,7 @@ export const DASHBOARD_HTML = `<!doctype html>
         ? "backfilling (" + bp.done + "/" + bp.total + ")"
         : "backfilling\\u2026";
       renderPill("act-backfill", act.backfill, backfillLabel, "backfill idle");
-      renderPill("act-discovery", act.discovery, "discovering\\u2026", "discovery idle");
+      renderPill("act-discovery", act.discovery, "new holder\\u2026", "discovery idle");
       var led = el("ledger");
       if (typeof data.latestLedger === "number") {
         led.innerHTML = '<span class="dot"></span><span>subscribed at ledger</span> <span class="num">' + data.latestLedger.toLocaleString() + "</span>";
