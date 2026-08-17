@@ -1,12 +1,13 @@
 import { captureCloseTimes } from "../backfill/closeTimes.js";
-import { BackfillWorker } from "../backfill/worker.js";
+import { runIssuerBackfill } from "../backfill/issuerSweep.js";
 import type { Database } from "../db/database.js";
 import { AccountRepository } from "../db/repositories/accounts.js";
+import { BackfillJobRepository } from "../db/repositories/backfillJobs.js";
 import type { IssuanceRecord } from "../db/repositories/issuances.js";
-import { discover, type DiscoveryTarget } from "../discovery/index.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 import { BalanceDeltaRepository, deltaDeriver, trackedIssuance } from "../reconcile/index.js";
+import { decodeMptIssuer } from "../xrpl/mpt.js";
 
 import { noopActivityTracker, type ActivityTracker } from "./activity.js";
 
@@ -21,31 +22,19 @@ export interface IngestSummary {
  * are managed by the caller. */
 export type OrchestratorClient = ClioReader;
 
-function targetFor(issuance: IssuanceRecord): DiscoveryTarget {
-  const strategy =
-    issuance.discoveryStrategy === "auto"
-      ? undefined
-      : (issuance.discoveryStrategy as DiscoveryTarget["strategy"]);
-  if (issuance.kind === "mpt") {
-    return {
-      kind: "mpt",
-      mptIssuanceId: issuance.mptIssuanceId ?? "",
-      ...(strategy ? { strategy } : {}),
-    };
-  }
-  return {
-    kind: "iou",
-    currency: issuance.currency ?? "",
-    issuer: issuance.issuerAccount ?? "",
-    ...(strategy ? { strategy } : {}),
-  };
+/** The issuer address whose `account_tx` sweep backfills the whole issuance. */
+export function issuerOf(issuance: IssuanceRecord): string {
+  return issuance.kind === "mpt"
+    ? decodeMptIssuer(issuance.mptIssuanceId ?? "")
+    : (issuance.issuerAccount ?? "");
 }
 
 /**
- * Run the ingestion pipeline for a registered issuance: discover the account
- * set, record it, backfill each account (bounded and resumable), then derive
- * balance deltas. Ties the components together behind one call so the admin
- * layer can trigger ingestion on registration.
+ * Run the ingestion pipeline for a registered issuance with a **single
+ * `account_tx` sweep on its issuer**: because every in-scope transaction appears
+ * in the issuer's `account_tx`, one bounded, resumable sweep both discovers
+ * every holder and backfills their history — no separate discovery pass and no
+ * per-holder fan-out. Deltas are derived per transaction as each is ingested.
  */
 export async function ingestIssuance(
   client: OrchestratorClient,
@@ -55,57 +44,47 @@ export async function ingestIssuance(
   activity: ActivityTracker = noopActivityTracker,
 ): Promise<IngestSummary> {
   const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
-  const result = await activity.track("discovery", `discovering ${label ?? issuance.id}`, () =>
-    discover(client, targetFor(issuance), { logger }),
-  );
-  await new AccountRepository(db).recordDiscovered(issuance.id, result.accounts);
+  const issuer = issuerOf(issuance);
+  const fromLedger = issuance.backfillFromLedger > 0 ? issuance.backfillFromLedger : 0;
 
-  const acquisitionLedgers = result.accounts
-    .map((a) => a.firstAcquisitionLedger)
-    .filter((l): l is number => l !== null && l > 0);
-  const fromLedger =
-    issuance.backfillFromLedger > 0
-      ? issuance.backfillFromLedger
-      : acquisitionLedgers.length > 0
-        ? Math.min(...acquisitionLedgers)
-        : 0;
+  // The issuer must exist as an account (FK for the backfill job + coverage) —
+  // it is not a holder, so it is recorded in `accounts` only, not scope.
+  await db.query(
+    "INSERT INTO accounts (address, first_seen_ledger) VALUES ($1, NULL) ON CONFLICT (address) DO NOTHING",
+    [issuer],
+  );
 
-  // Deltas are derived per transaction as each is backfilled (and kept current
-  // afterwards by the live tail), so there is no O(history) re-derivation pass.
-  const worker = new BackfillWorker({
-    client,
-    db,
-    logger,
-    deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
-  });
-  await worker.enqueue(
-    issuance.id,
-    result.accounts.map((a) => a.address),
-    fromLedger,
-  );
-  const { processed, failed } = await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
-    worker.runIssuance(issuance.id),
-  );
+  const jobs = new BackfillJobRepository(db);
+  await jobs.enqueue(issuance.id, issuer, fromLedger, null, "issuer");
+  // Resume/retry a prior sweep left running (crash) or failed (transient drop).
+  await jobs.reclaimStale(issuance.id);
+  const job = (await jobs.getByAccount(issuance.id, issuer))!;
+
+  let processed = 0;
+  if (job.status !== "completed") {
+    await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
+      runIssuerBackfill(client, db, trackedIssuance(issuance), job, {
+        logger,
+        deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
+      }),
+    );
+    processed = 1;
+  }
 
   // Capture close times for the ledgers we ingested, enabling time-based
   // reporting later.
   await captureCloseTimes(client, db, issuance.id);
 
   const deltaRows = await new BalanceDeltaRepository(db).count(issuance.id);
+  const discovered = await new AccountRepository(db).countForIssuance(issuance.id);
 
   logger.info("issuance ingested", {
     issuanceId: issuance.id,
-    strategy: result.strategy,
-    discovered: result.accounts.length,
+    strategy: "issuer_sweep",
+    discovered,
     jobsProcessed: processed,
-    jobsFailed: failed,
     deltaRows,
   });
 
-  return {
-    strategy: result.strategy,
-    discovered: result.accounts.length,
-    jobsProcessed: processed,
-    deltaRows,
-  };
+  return { strategy: "issuer_sweep", discovered, jobsProcessed: processed, deltaRows };
 }

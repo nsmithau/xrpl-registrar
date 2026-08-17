@@ -110,6 +110,11 @@ CREATE TABLE backfill_job (
   last_marker JSONB,
   status      TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  -- 'issuer': a single account_tx sweep on the issuer that backfills every
+  -- holder of the issuance at once (the primary bulk path). 'account': a sweep
+  -- of one holder (used by the tail to backfill a newly-discovered holder).
+  kind        TEXT NOT NULL DEFAULT 'account'
+                CHECK (kind IN ('account', 'issuer')),
   tx_count    BIGINT NOT NULL DEFAULT 0,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (address, issuance_id)

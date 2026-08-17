@@ -3,9 +3,10 @@ import type { ClioRequest, ClioResponse } from "../clio/types.js";
 /** The strategies for deriving an issuance's historical account set. */
 export type DiscoveryStrategyName = "authorization" | "trustline" | "traversal";
 
-/** How an account came to be tracked: a bulk discovery strategy, or the live
- * tail spotting a holder in a streamed transaction. */
-export type DiscoverySource = DiscoveryStrategyName | "stream";
+/** How an account came to be tracked: a bulk discovery strategy, the issuer
+ * account_tx sweep that backfills every holder at once, or the live tail
+ * spotting a holder in a streamed transaction. */
+export type DiscoverySource = DiscoveryStrategyName | "issuer_sweep" | "stream";
 
 /** What discovery is asked to derive the account set for. */
 export type DiscoveryTarget =

@@ -52,7 +52,7 @@ CLIO_ENDPOINT=wss://<testnet-clio> pnpm demo   # override issuance with MPT_ISSU
 
 ## Registering issuances (Admin API)
 
-The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it runs discovery, backfills history, captures ledger close times, and derives balances — all in the background.
+The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it sweeps the issuer's history — discovering every holder and backfilling their transactions in one pass — then captures ledger close times and derives balances, all in the background.
 
 The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. API clients (curl, Postman, xrpl.js) authenticate with `Authorization: Bearer <token>` on every request. The browser dashboard instead signs in once via `POST /admin/login`, which exchanges the token for an httpOnly, `SameSite=Strict` session cookie — so the token is never kept in JS-readable storage. Never expose this port publicly — it surfaces account addresses and archive scope.
 
@@ -68,7 +68,7 @@ curl -s http://127.0.0.1:51235/admin/issuances \
   -d '{"kind":"iou","currency":"USD","issuer":"rEXAMPLE...","discoveryStrategy":"trustline"}'
 ```
 
-Optional fields: `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) and `backfillFromLedger`.
+Optional fields: `backfillFromLedger` (lower-bound the issuer sweep) and `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) — the latter is retained for the standalone discovery primitive and cross-checks; the default ingest path is a single issuer `account_tx` sweep and does not consult it.
 
 For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`RLUSD`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `RLUSD` and `524C555344…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
 
@@ -149,7 +149,7 @@ pnpm build             # emit to dist/
 
 ## Roadmap
 
-Backfill runs multiple accounts concurrently within one process, all sharing the single global governor so total upstream load stays under the cap. The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
+Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a *newly*-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
 
 ## Licence
 

@@ -4,7 +4,8 @@ import { AdminApi } from "../../src/admin/adminApi.js";
 import { ingestIssuance } from "../../src/admin/orchestrator.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import type { ClioRequest } from "../../src/clio/types.js";
-import { fakeReader, txEntry } from "../discovery/fakes.js";
+import { decodeMptIssuer } from "../../src/xrpl/mpt.js";
+import { fakeReader } from "../discovery/fakes.js";
 
 // A valid-format MPTokenIssuanceID (48 hex): ingestIssuance decodes the issuer
 // address from it, so the shape must be real even though the network is faked.
@@ -20,32 +21,40 @@ describe("ingestIssuance", () => {
     await db.close();
   });
 
-  it("discovers, records accounts, backfills, and derives for an issuance", async () => {
-    // Discovery (JSON account_tx, tx_type filter) finds two holders; backfill
-    // (binary account_tx) returns nothing, so the wiring runs end to end
-    // without needing decodable blobs.
+  it("backfills an issuance with a single account_tx sweep on its issuer", async () => {
+    // One issuer sweep (binary account_tx) drives the whole pipeline; returning
+    // no transactions exercises the wiring end to end without decodable blobs.
+    const sweptAccounts: string[] = [];
     const client = fakeReader((req: ClioRequest) => {
       if (req.command !== "account_tx") return {};
-      if (req.binary === true) return { transactions: [], marker: undefined };
-      return {
-        transactions: [
-          txEntry(10, { TransactionType: "MPTokenAuthorize", Account: "rH1", MPTokenIssuanceID: MPT }),
-          txEntry(11, { TransactionType: "MPTokenAuthorize", Account: "rH2", MPTokenIssuanceID: MPT }),
-        ],
-      };
+      sweptAccounts.push(String(req.account));
+      return { transactions: [] };
     });
 
-    const iss = await new AdminApi(db).registerIssuance({
-      kind: "mpt",
-      mptIssuanceId: MPT,
-      discoveryStrategy: "authorization",
-    });
+    const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
 
     const summary = await ingestIssuance(client, db, iss);
-    expect(summary).toMatchObject({ strategy: "authorization", discovered: 2, deltaRows: 0 });
+    expect(summary).toMatchObject({ strategy: "issuer_sweep", discovered: 0, deltaRows: 0 });
+
+    // Swept the issuer decoded from the MPT id, exactly once — not one call per
+    // holder and not a request per ledger.
+    expect(sweptAccounts).toEqual([decodeMptIssuer(MPT)]);
 
     const status = (await new AdminApi(db).getIssuance(iss.id))!;
-    expect(status.accounts).toBe(2);
-    expect(status.backfill.completed).toBe(2); // one job per discovered account
+    expect(status.backfill.completed).toBe(1); // the single issuer sweep job
+  });
+
+  it("is idempotent: a second run does not re-sweep a completed issuance", async () => {
+    let sweeps = 0;
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command === "account_tx") sweeps += 1;
+      return { transactions: [] };
+    });
+    const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
+
+    await ingestIssuance(client, db, iss);
+    await ingestIssuance(client, db, iss); // job already completed → skipped
+
+    expect(sweeps).toBe(1);
   });
 });

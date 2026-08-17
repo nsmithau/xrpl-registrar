@@ -1,14 +1,11 @@
-import { decode, hashes } from "xrpl";
-
 import type { Provenance } from "../clio/types.js";
 import { accountTxPages, type BinaryTxEntry } from "../backfill/pages.js";
+import { issuerSweepEntryMapper } from "../backfill/issuerSweep.js";
 import type { Database, Queryable } from "../db/database.js";
-import { asRecord } from "../discovery/fields.js";
 import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { holdersInMeta, type TrackedIssuance } from "../reconcile/incremental.js";
-import { hexToBytes } from "../util/hex.js";
+import { type TrackedIssuance } from "../reconcile/incremental.js";
 
 import type { LedgerRange } from "./types.js";
 
@@ -38,34 +35,6 @@ export interface BackfillGapOptions {
   readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => IngestTransaction | null;
 }
 
-/** Decode a binary `account_tx` entry and keep it only if it touches a holder of
- * a tracked issuance. Every relevant transaction on an MPT (or IOU) — including
- * holder-to-holder payments where the issuer's own AccountRoot is untouched —
- * appears in the issuer's `account_tx` and modifies a holder's `MPToken` /
- * `RippleState` node, so `holdersInMeta` is a complete in-scope filter. The
- * transaction is associated with the issuer (mirroring Clio's own index) plus
- * every tracked-issuance holder it touches. */
-function makeMapEntry(
-  tracked: readonly TrackedIssuance[],
-): (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => IngestTransaction | null {
-  return (entry, issuer, provenance) => {
-    const meta = asRecord(decode(entry.meta_blob));
-    const holders = meta ? holdersInMeta(meta, tracked) : [];
-    if (holders.length === 0) return null; // the issuer's unrelated / off-scope activity
-    const tx = decode(entry.tx_blob) as { TransactionType?: string };
-    return {
-      hash: hashes.hashSignedTx(entry.tx_blob),
-      ledgerIndex: entry.ledger_index,
-      txType: tx.TransactionType ?? "unknown",
-      mptIssuanceId: null,
-      txBlob: hexToBytes(entry.tx_blob),
-      metaBlob: hexToBytes(entry.meta_blob),
-      provenance,
-      accounts: [...new Set([issuer, ...holders.map((h) => h.holder)])],
-    };
-  };
-}
-
 /**
  * Heal a detected gap by re-fetching the missed transactions and ingesting the
  * ones that touch a tracked issuance. Rather than a request per gap **ledger**,
@@ -91,7 +60,7 @@ export async function backfillGap(
   const logger = options.logger ?? nullLogger;
   const deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
   const onEntry = options.onEntry ?? (() => {});
-  const mapEntry = options.mapEntry ?? makeMapEntry(tracked);
+  const mapEntry = options.mapEntry ?? issuerSweepEntryMapper(tracked);
   const concurrency = options.concurrency ?? HEAL_CONCURRENCY;
 
   const startedMs = Date.now();

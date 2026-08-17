@@ -2,6 +2,10 @@ import type { Database, Queryable, Row } from "../database.js";
 
 export type BackfillStatus = "pending" | "running" | "completed" | "failed";
 
+/** 'issuer': one account_tx sweep on the issuer that backfills every holder of
+ * the issuance at once. 'account': a single holder's sweep (tail-discovered). */
+export type BackfillKind = "account" | "issuer";
+
 export interface BackfillJob {
   readonly id: number;
   readonly address: string;
@@ -11,6 +15,7 @@ export interface BackfillJob {
   /** Resume cursor: the last marker checkpointed, or null (start / done). */
   readonly lastMarker: unknown;
   readonly status: BackfillStatus;
+  readonly kind: BackfillKind;
   readonly txCount: number;
 }
 
@@ -22,10 +27,11 @@ interface JobRow extends Row {
   to_ledger: number | string | null;
   last_marker: unknown;
   status: BackfillStatus;
+  kind: BackfillKind;
   tx_count: number | string;
 }
 
-const COLUMNS = `id, address, issuance_id, from_ledger, to_ledger, last_marker, status, tx_count`;
+const COLUMNS = `id, address, issuance_id, from_ledger, to_ledger, last_marker, status, kind, tx_count`;
 
 function mapRow(row: JobRow): BackfillJob {
   return {
@@ -36,6 +42,7 @@ function mapRow(row: JobRow): BackfillJob {
     toLedger: row.to_ledger === null ? null : Number(row.to_ledger),
     lastMarker: row.last_marker ?? undefined,
     status: row.status,
+    kind: row.kind,
     txCount: Number(row.tx_count),
   };
 }
@@ -83,12 +90,13 @@ export class BackfillJobRepository {
     address: string,
     fromLedger: number | null = 0,
     toLedger: number | null = null,
+    kind: BackfillKind = "account",
   ): Promise<BackfillJob> {
     await this.#db.query(
-      `INSERT INTO backfill_job (address, issuance_id, from_ledger, to_ledger, status)
-       VALUES ($1, $2, $3, $4, 'pending')
+      `INSERT INTO backfill_job (address, issuance_id, from_ledger, to_ledger, kind, status)
+       VALUES ($1, $2, $3, $4, $5, 'pending')
        ON CONFLICT (address, issuance_id) DO NOTHING`,
-      [address, issuanceId, fromLedger, toLedger],
+      [address, issuanceId, fromLedger, toLedger, kind],
     );
     const job = await this.getByAccount(issuanceId, address);
     if (!job) throw new Error(`Failed to enqueue backfill job for ${address}`);
@@ -108,9 +116,13 @@ export class BackfillJobRepository {
    * single statement so two concurrent workers never grab the same job.
    * `FOR UPDATE SKIP LOCKED` keeps this correct across connections too.
    */
-  async claim(issuanceId?: number): Promise<BackfillJob | null> {
-    const where = issuanceId === undefined ? "" : "AND issuance_id = $1";
-    const params = issuanceId === undefined ? [] : [issuanceId];
+  async claim(issuanceId?: number, kind: BackfillKind = "account"): Promise<BackfillJob | null> {
+    const params: unknown[] = [kind];
+    let where = "AND kind = $1";
+    if (issuanceId !== undefined) {
+      params.push(issuanceId);
+      where += ` AND issuance_id = $${params.length}`;
+    }
     const { rows } = await this.#db.query<JobRow>(
       `UPDATE backfill_job SET status = 'running', updated_at = now()
        WHERE id = (

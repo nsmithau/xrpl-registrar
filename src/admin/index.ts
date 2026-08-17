@@ -6,7 +6,7 @@ export {
   type IssuanceStatus,
   type BackfillSummary,
 } from "./adminApi.js";
-export { ingestIssuance, type IngestSummary, type OrchestratorClient } from "./orchestrator.js";
+export { ingestIssuance, issuerOf, type IngestSummary, type OrchestratorClient } from "./orchestrator.js";
 export { AdminServer, type AdminServerOptions } from "./adminServer.js";
 export { DASHBOARD_HTML } from "./dashboard.js";
 export {

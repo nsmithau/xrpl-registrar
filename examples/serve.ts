@@ -17,6 +17,7 @@ import {
   ArchiveApi,
   ArchiveServer,
   AccountRepository,
+  BackfillJobRepository,
   BackfillWorker,
   ClioForwarder,
   IssuanceRepository,
@@ -29,8 +30,10 @@ import {
   deltaDeriver,
   holdersInMetaBlob,
   ingestIssuance,
+  issuerOf,
   loadConfig,
   openArchiveDatabase,
+  runIssuerBackfill,
   trackedIssuance,
   type TrackedIssuance,
 } from "../src/index.js";
@@ -236,18 +239,37 @@ console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), heali
 // Without this they wait for the next hourly re-discovery; here they finish now,
 // in the background, so serve comes up immediately.
 async function resumeBackfills(): Promise<void> {
+  const jobs = new BackfillJobRepository(db);
   for (const issuance of await new IssuanceRepository(db).list()) {
     if (!issuance.enabled) continue;
+    const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
+
+    // The issuer sweep (kind='issuer'): resume it if a prior run left it
+    // pending/running/failed. reclaimStale returns running/failed to pending.
+    const issuer = issuerOf(issuance);
+    const issuerJob = await jobs.getByAccount(issuance.id, issuer);
+    if (issuerJob && issuerJob.status !== "completed") {
+      await jobs.reclaimStale(issuance.id);
+      const fresh = (await jobs.getByAccount(issuance.id, issuer))!;
+      log.info("resuming issuer backfill", { issuanceId: issuance.id, status: issuerJob.status });
+      await activity.track("backfill", `resuming ${label ?? issuance.id}`, () =>
+        runIssuerBackfill(client, db, trackedIssuance(issuance), fresh, {
+          logger: log,
+          deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
+        }),
+      );
+    }
+
+    // Per-holder jobs (kind='account') enqueued by the tail's new-holder path.
     const { rows } = await db.query<{ n: number | string }>(
-      "SELECT count(*)::int AS n FROM backfill_job WHERE issuance_id = $1 AND status IN ('pending','running','failed')",
+      "SELECT count(*)::int AS n FROM backfill_job WHERE issuance_id = $1 AND kind = 'account' AND status IN ('pending','running','failed')",
       [issuance.id],
     );
-    const outstanding = Number(rows[0]?.n ?? 0);
-    if (outstanding === 0) continue;
-    const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
-    log.info("resuming interrupted backfill", { issuanceId: issuance.id, outstanding });
-    const worker = new BackfillWorker({ client, db, logger: log, deriveDeltas });
-    await activity.track("backfill", `resuming ${label ?? issuance.id}`, () => worker.runIssuance(issuance.id));
+    if (Number(rows[0]?.n ?? 0) > 0) {
+      log.info("resuming holder backfills", { issuanceId: issuance.id, outstanding: Number(rows[0]!.n) });
+      const worker = new BackfillWorker({ client, db, logger: log, deriveDeltas });
+      await activity.track("backfill", `resuming holders ${label ?? issuance.id}`, () => worker.runIssuance(issuance.id));
+    }
   }
 }
 void resumeBackfills().catch((err: unknown) => log.error("resume backfill failed", { error: String(err) }));
