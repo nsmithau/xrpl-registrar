@@ -49,7 +49,8 @@
     "serve": "tsx --env-file-if-exists=.env examples/serve.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "probe": "tsx --env-file-if-exists=.env examples/probe-ratelimit.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
