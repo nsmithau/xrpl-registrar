@@ -89,6 +89,9 @@ export const DASHBOARD_HTML = `<!doctype html>
   button.copy svg { display: block; width: 14px; height: 14px; }
   button.copy:hover { filter: none; color: hsl(var(--foreground)); border-color: hsl(var(--muted-foreground)); }
   button.copy.copied { color: hsl(var(--success)); border-color: hsl(var(--success)); }
+  main a { color: hsl(var(--primary)); text-decoration: none; }
+  main a:hover { text-decoration: underline; }
+  .card-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: hsl(var(--muted-foreground)); }
   main { padding: 0 24px 24px; }
   .card {
     background: hsl(var(--card)); border: 1px solid hsl(var(--border));
@@ -179,6 +182,13 @@ export const DASHBOARD_HTML = `<!doctype html>
       <tbody id="rows"></tbody>
     </table>
   </div>
+  <div id="recent" class="card" hidden>
+    <h3 class="card-title">Recent transactions</h3>
+    <table>
+      <thead><tr><th>Ledger</th><th>Transaction</th><th>Type</th></tr></thead>
+      <tbody id="recentRows"></tbody>
+    </table>
+  </div>
   <div id="meta"></div>
 </main>
 <script>
@@ -198,6 +208,18 @@ export const DASHBOARD_HTML = `<!doctype html>
   function short(s) { return s ? (s.length > 18 ? s.slice(0, 12) + "\\u2026" + s.slice(-4) : s) : "\\u2014"; }
   function cell(tr, v, cls) { var td = document.createElement("td"); if (cls) td.className = cls; td.textContent = String(v); tr.appendChild(td); return td; }
 
+  // Block-explorer links (base URL comes from the server; null disables linking).
+  var explorerBase = null;
+  function exUrl(kind, value) { // kind: transactions | ledgers | mpt | accounts
+    return explorerBase && value != null && value !== "" ? explorerBase + "/" + kind + "/" + value : null;
+  }
+  function exLink(text, href, title) {
+    var a = document.createElement("a");
+    a.textContent = String(text); a.href = href; a.target = "_blank"; a.rel = "noopener";
+    if (title) a.title = title;
+    return a;
+  }
+
   function copyText(text, btn) {
     var done = function () {
       btn.innerHTML = checkIcon; btn.classList.add("copied");
@@ -216,11 +238,14 @@ export const DASHBOARD_HTML = `<!doctype html>
   // Identifier cell: display label + a button that copies the full value. An
   // optional hover shows the full identifier as a tooltip on the label (used to
   // surface the mpt id behind a ticker).
-  function identifierCell(tr, label, full, hover) {
+  function identifierCell(tr, label, full, hover, href) {
     var td = document.createElement("td"); td.className = "mono";
-    var span = document.createElement("span"); span.textContent = label;
-    if (hover) span.title = hover;
-    td.appendChild(span);
+    var labelEl = href
+      ? (function () { var a = document.createElement("a"); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; })()
+      : document.createElement("span");
+    labelEl.textContent = label;
+    if (hover) labelEl.title = hover;
+    td.appendChild(labelEl);
     if (full) {
       var btn = document.createElement("button"); btn.type = "button"; btn.className = "copy";
       btn.innerHTML = copyIcon; btn.title = "Copy " + full; btn.setAttribute("aria-label", "Copy " + full);
@@ -237,15 +262,20 @@ export const DASHBOARD_HTML = `<!doctype html>
     cell(tr, i.id);
     cell(tr, i.kind);
     if (i.kind === "mpt") {
-      // Prefer the ticker; the full mpt id is the hover tooltip and the copy value.
-      if (i.ticker) identifierCell(tr, i.ticker, i.mptIssuanceId, i.mptIssuanceId);
-      else identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId);
-    } else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount);
+      // Prefer the ticker; the full mpt id is the hover tooltip and the copy value,
+      // and (when an explorer is configured) links to the MPT issuance.
+      var mptHref = exUrl("mpt", i.mptIssuanceId);
+      if (i.ticker) identifierCell(tr, i.ticker, i.mptIssuanceId, i.mptIssuanceId, mptHref);
+      else identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId, i.mptIssuanceId, mptHref);
+    } else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount, i.issuerAccount, exUrl("accounts", i.issuerAccount));
     cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
     cell(tr, s.transactions);
-    cell(tr, s.latestLedger === null ? "\\u2014" : s.latestLedger, "mono");
+    var latTd = document.createElement("td"); latTd.className = "mono";
+    if (s.latestLedger === null) latTd.textContent = "\\u2014";
+    else { var lh = exUrl("ledgers", s.latestLedger); latTd.appendChild(lh ? exLink(s.latestLedger, lh) : document.createTextNode(String(s.latestLedger))); }
+    tr.appendChild(latTd);
     var bfTd = document.createElement("td");
     var pct = total ? Math.round((bf.completed / total) * 100) : 0;
     bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span>';
@@ -253,6 +283,28 @@ export const DASHBOARD_HTML = `<!doctype html>
     t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
     bfTd.appendChild(t); tr.appendChild(bfTd);
     return tr;
+  }
+
+  // The archive's most recent transactions, newest first — refreshed on each
+  // poll so a newly-detected transaction shows up within a few seconds.
+  function renderRecent(txns) {
+    var box = el("recent"), tb = el("recentRows");
+    tb.textContent = "";
+    if (!txns || !txns.length) { box.hidden = true; return; }
+    box.hidden = false;
+    txns.forEach(function (x) {
+      var tr = document.createElement("tr");
+      var lt = document.createElement("td"); lt.className = "mono";
+      var lh = exUrl("ledgers", x.ledgerIndex);
+      lt.appendChild(lh ? exLink(x.ledgerIndex, lh) : document.createTextNode(String(x.ledgerIndex)));
+      tr.appendChild(lt);
+      var ht = document.createElement("td"); ht.className = "mono";
+      var hh = exUrl("transactions", x.hash);
+      ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
+      tr.appendChild(ht);
+      cell(tr, x.txType);
+      tb.appendChild(tr);
+    });
   }
 
   function setLoggedIn(yes) {
@@ -263,6 +315,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     live = false;
     setLoggedIn(false);
     el("app").hidden = true;
+    el("recent").hidden = true;
     el("status").classList.remove("on");
     el("err").textContent = msg || "";
     el("ledger").className = "counter";
@@ -277,6 +330,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       // prompt, no error styling).
       if (res.status === 401) { showSignedOut(live ? "Session expired \\u2014 sign in again" : ""); return; }
       var data = await res.json();
+      explorerBase = data.explorerBaseUrl || null; // set before rendering so links resolve
       var statuses = await Promise.all(data.issuances.map(function (i) {
         return api("/admin/issuances/" + i.id).then(function (r) { return r.json(); });
       }));
@@ -286,6 +340,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       el("status").classList.add("on");
       var rows = el("rows"); rows.textContent = "";
       statuses.forEach(function (s) { rows.appendChild(renderRow(s)); });
+      renderRecent(data.recentTransactions);
       el("summary").textContent = data.issuances.length + " issuance(s) tracked";
       var act = data.activity || {};
       var bp = data.backfillProgress;

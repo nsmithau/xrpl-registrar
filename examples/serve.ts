@@ -327,6 +327,7 @@ if (config.admin.token) {
     token: config.admin.token,
     port: config.admin.port,
     host: "127.0.0.1",
+    ...(config.admin.explorerBaseUrl ? { explorerBaseUrl: config.admin.explorerBaseUrl } : {}),
     logger: log,
     onRegistered: (issuance) => {
       ingestIssuance(client, db, issuance, log, activity)

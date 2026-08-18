@@ -26,6 +26,12 @@ export interface RegisterIouIssuance {
 
 export type RegisterIssuance = RegisterMptIssuance | RegisterIouIssuance;
 
+export interface RecentTransaction {
+  readonly hash: string;
+  readonly ledgerIndex: number;
+  readonly txType: string;
+}
+
 export interface BackfillSummary {
   readonly pending: number;
   readonly running: number;
@@ -120,6 +126,16 @@ export class AdminApi {
     const total = Number(rows[0]?.total ?? 0);
     if (total === 0) return null;
     return { done: Number(rows[0]?.done ?? 0), total };
+  }
+
+  /** The most recent transactions across the whole archive, newest first — the
+   * dashboard's live activity feed (refreshed on its poll). */
+  async recentTransactions(limit = 5): Promise<RecentTransaction[]> {
+    const { rows } = await this.#db.query<{ hash: string; ledger_index: number | string; tx_type: string }>(
+      "SELECT hash, ledger_index, tx_type FROM transactions ORDER BY ledger_index DESC, hash LIMIT $1",
+      [limit],
+    );
+    return rows.map((r) => ({ hash: r.hash, ledgerIndex: Number(r.ledger_index), txType: r.tx_type }));
   }
 
   /** The latest ledger the archive has observed (max recorded close time) —

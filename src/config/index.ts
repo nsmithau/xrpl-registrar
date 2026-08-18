@@ -22,6 +22,9 @@ export interface AppConfig {
     readonly port: number;
     /** Bearer token required by the admin API. Admin is disabled if unset. */
     readonly token: string | undefined;
+    /** Base URL of a block explorer (e.g. `https://testnet.xrpl.org`). When set,
+     * the dashboard links transaction hashes, ledgers, and MPT ids to it. */
+    readonly explorerBaseUrl: string | undefined;
   };
   readonly governor: GovernorOptions;
 }
@@ -61,6 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     admin: {
       port: intFromEnv(env.ADMIN_PORT, 51235),
       token: env.ADMIN_TOKEN?.trim() || undefined,
+      explorerBaseUrl: env.EXPLORER_BASE_URL?.trim().replace(/\/+$/, "") || undefined,
     },
     governor: {
       maxConcurrent: intFromEnv(env.GOVERNOR_MAX_CONCURRENT, DEFAULT_GOVERNOR_OPTIONS.maxConcurrent),

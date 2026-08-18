@@ -155,6 +155,17 @@ describe("AdminApi", () => {
     expect(await api.latestLedgerSeen()).toBe(250);
   });
 
+  it("returns the most recent transactions across the archive, newest first", async () => {
+    const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
+    const txns = new TransactionRepository(db);
+    for (const [hash, ledger, type] of [["A", 100, "Payment"], ["B", 300, "MPTokenAuthorize"], ["C", 200, "Payment"]] as const) {
+      await txns.ingest({ hash, ledgerIndex: ledger, txType: type, txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: [] });
+    }
+    const recent = await api.recentTransactions(2);
+    expect(recent.map((r) => r.hash)).toEqual(["B", "C"]); // newest ledger first, limited
+    expect(recent[0]).toEqual({ hash: "B", ledgerIndex: 300, txType: "MPTokenAuthorize" });
+  });
+
   it("enables/disables and returns null for unknown issuances", async () => {
     const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A" });
     expect(await api.setEnabled(iss.id, false)).toBe(true);

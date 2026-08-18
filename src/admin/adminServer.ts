@@ -21,6 +21,9 @@ export interface AdminServerOptions {
   /** Add `Secure` to the session cookie — set true when terminating TLS in
    * front. Default false (the server binds localhost over plain HTTP). */
   readonly secureCookie?: boolean;
+  /** Block-explorer base URL (e.g. `https://testnet.xrpl.org`); surfaced to the
+   * dashboard so it can link hashes, ledgers, and MPT ids. */
+  readonly explorerBaseUrl?: string;
   readonly logger?: Logger;
 }
 
@@ -58,6 +61,7 @@ export class AdminServer {
   readonly #http: Server;
   readonly #sessionTtlMs: number;
   readonly #secureCookie: boolean;
+  readonly #explorerBaseUrl: string | undefined;
   /** Live dashboard sessions: opaque id -> expiry epoch ms. In-memory, so a
    * restart signs everyone out — fine for an operator dashboard. */
   readonly #sessions = new Map<string, number>();
@@ -71,6 +75,7 @@ export class AdminServer {
     this.#onRegistered = options.onRegistered;
     this.#sessionTtlMs = options.sessionTtlMs ?? 12 * 60 * 60 * 1000;
     this.#secureCookie = options.secureCookie ?? false;
+    this.#explorerBaseUrl = options.explorerBaseUrl;
     this.#logger = options.logger ?? nullLogger;
     this.#http = createServer((req, res) => void this.#handle(req, res));
   }
@@ -182,8 +187,10 @@ export class AdminServer {
         return send(res, 200, {
           issuances: await this.#api.listIssuances(),
           latestLedger: await this.#api.latestLedgerSeen(),
+          recentTransactions: await this.#api.recentTransactions(5),
           activity: this.#api.activitySnapshot(),
           backfillProgress: await this.#api.backfillProgress(),
+          explorerBaseUrl: this.#explorerBaseUrl ?? null,
         });
       }
       if (req.method === "GET" && id !== undefined) {
