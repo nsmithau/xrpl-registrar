@@ -2,7 +2,9 @@ export { ArchiveApi, type ArchiveApiOptions } from "./handler.js";
 export {
   tableLedgerTimeResolver,
   lazyLedgerTimeResolver,
+  ensureLedgerCloseTimes,
   type LedgerTimeResolver,
+  type CloseTimeFiller,
 } from "./ledgerTime.js";
 export {
   ClioForwarder,

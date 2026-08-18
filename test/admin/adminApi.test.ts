@@ -181,6 +181,22 @@ describe("AdminApi", () => {
     expect(recent[1]).toMatchObject({ hash: "C", closeTimeUtc: null, result: "tesSUCCESS" });
   });
 
+  it("lazily fills close times for backfilled ledgers via the injected filler", async () => {
+    const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
+    await new TransactionRepository(db).ingest({ hash: "X", ledgerIndex: 900, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: [] });
+    const filled: number[] = [];
+    // A filler that records ledger 900's close time on demand (as the real one
+    // would, via a `ledger` call to Clio).
+    const withFiller = new AdminApi(db, undefined, async (ledgers) => {
+      filled.push(...ledgers);
+      if (ledgers.includes(900)) await new LedgerTimeRepository(db).record({ ledgerIndex: 900, closeTimeIso: "2026-08-17T02:00:00Z" });
+    });
+
+    const recent = await withFiller.recentTransactions(1);
+    expect(filled).toContain(900); // the panel's ledgers were passed to the filler
+    expect(recent[0]).toMatchObject({ hash: "X", closeTimeUtc: "2026-08-17 02:00:00" });
+  });
+
   it("enables/disables and returns null for unknown issuances", async () => {
     const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A" });
     expect(await api.setEnabled(iss.id, false)).toBe(true);

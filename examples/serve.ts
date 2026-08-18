@@ -28,6 +28,7 @@ import {
   createClioClient,
   decodeMptIssuer,
   deltaDeriver,
+  ensureLedgerCloseTimes,
   holdersInMeta,
   ingestIssuance,
   issuerOf,
@@ -323,7 +324,9 @@ console.log(
 let adminServer: AdminServer | undefined;
 if (config.admin.token) {
   adminServer = new AdminServer({
-    api: new AdminApi(db, activity),
+    // The filler lazily fetches close times for the recent-transactions panel's
+    // backfilled ledgers (the tail only records them going forward).
+    api: new AdminApi(db, activity, (ledgers) => ensureLedgerCloseTimes(client, db, ledgers)),
     token: config.admin.token,
     port: config.admin.port,
     host: "127.0.0.1",

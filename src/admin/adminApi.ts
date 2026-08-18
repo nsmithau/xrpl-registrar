@@ -9,6 +9,7 @@ import { decodeMeta } from "../reconcile/incremental.js";
 import { normalizeCurrency } from "../xrpl/currency.js";
 
 import type { ActivityReport, ActivitySource } from "./activity.js";
+import type { CloseTimeFiller } from "../api/ledgerTime.js";
 
 export interface RegisterMptIssuance {
   readonly kind: "mpt";
@@ -77,12 +78,14 @@ export class AdminApi {
   readonly #issuances: IssuanceRepository;
   readonly #accounts: AccountRepository;
   readonly #activity: ActivitySource | undefined;
+  readonly #fillCloseTimes: CloseTimeFiller | undefined;
 
-  constructor(db: Database, activity?: ActivitySource) {
+  constructor(db: Database, activity?: ActivitySource, fillCloseTimes?: CloseTimeFiller) {
     this.#db = db;
     this.#issuances = new IssuanceRepository(db);
     this.#accounts = new AccountRepository(db);
     this.#activity = activity;
+    this.#fillCloseTimes = fillCloseTimes;
   }
 
   /** Snapshot of background activity (backfill/discovery) for the dashboard, or
@@ -142,26 +145,37 @@ export class AdminApi {
       hash: string;
       ledger_index: number | string;
       tx_type: string;
-      close_time_utc: string | null;
       meta_blob: Uint8Array;
     }>(
-      `SELECT t.hash, t.ledger_index, t.tx_type,
-              to_char(l.close_time_iso AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS close_time_utc,
-              t.meta_blob
-       FROM transactions t
-       LEFT JOIN ledgers l ON l.ledger_index = t.ledger_index
-       ORDER BY t.ledger_index DESC, t.hash
-       LIMIT $1`,
+      "SELECT hash, ledger_index, tx_type, meta_blob FROM transactions ORDER BY ledger_index DESC, hash LIMIT $1",
       [limit],
     );
+
+    // The tail records close times going forward; backfilled ledgers have none.
+    // Fill this small set on demand (cached) so their dates aren't blank.
+    const ledgers = [...new Set(rows.map((r) => Number(r.ledger_index)))];
+    if (this.#fillCloseTimes && ledgers.length > 0) await this.#fillCloseTimes(ledgers);
+
+    const closeTimes = new Map<number, string>();
+    if (ledgers.length > 0) {
+      const placeholders = ledgers.map((_, i) => `$${i + 1}`).join(",");
+      const { rows: tr } = await this.#db.query<{ ledger_index: number | string; utc: string | null }>(
+        `SELECT ledger_index, to_char(close_time_iso AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS utc
+         FROM ledgers WHERE ledger_index IN (${placeholders})`,
+        ledgers,
+      );
+      for (const r of tr) if (r.utc) closeTimes.set(Number(r.ledger_index), r.utc);
+    }
+
     return rows.map((r) => {
       const meta = decodeMeta(r.meta_blob);
       const result = meta && typeof meta["TransactionResult"] === "string" ? (meta["TransactionResult"] as string) : null;
+      const ledgerIndex = Number(r.ledger_index);
       return {
         hash: r.hash,
-        ledgerIndex: Number(r.ledger_index),
+        ledgerIndex,
         txType: r.tx_type,
-        closeTimeUtc: r.close_time_utc ?? null,
+        closeTimeUtc: closeTimes.get(ledgerIndex) ?? null,
         result,
       };
     });

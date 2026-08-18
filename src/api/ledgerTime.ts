@@ -8,6 +8,45 @@ import type { ClioReader } from "../discovery/types.js";
  * old. Used by the time-based reporting methods. */
 export type LedgerTimeResolver = (iso: string) => Promise<number | null>;
 
+/** Ensure the given ledgers' close times exist. Fills in whichever are missing. */
+export type CloseTimeFiller = (ledgerIndices: readonly number[]) => Promise<void>;
+
+/**
+ * Ensure the `ledgers` table holds close times for the given ledger indices,
+ * fetching any that are missing from Clio (a cheap, locally-answered `ledger`
+ * call) and caching them. Bounded and on-demand — used to fill the dashboard's
+ * recent-transactions dates for backfilled ledgers the live tail never observed,
+ * without re-introducing the eager O(all in-scope ledgers) capture ADR-014
+ * removed. Best-effort: a fetch failure just leaves that ledger's date blank.
+ */
+export async function ensureLedgerCloseTimes(
+  client: ClioReader,
+  db: Database,
+  ledgerIndices: readonly number[],
+): Promise<void> {
+  const unique = [...new Set(ledgerIndices)];
+  if (unique.length === 0) return;
+  const ledgers = new LedgerTimeRepository(db);
+
+  const placeholders = unique.map((_, i) => `$${i + 1}`).join(",");
+  const { rows } = await db.query<{ ledger_index: number | string }>(
+    `SELECT ledger_index FROM ledgers WHERE ledger_index IN (${placeholders})`,
+    unique,
+  );
+  const known = new Set(rows.map((r) => Number(r.ledger_index)));
+
+  for (const ledgerIndex of unique) {
+    if (known.has(ledgerIndex)) continue;
+    try {
+      const res = await client.request<{ ledger?: unknown }>({ command: "ledger", ledger_index: ledgerIndex });
+      const iso = asString(asRecord(res.result.ledger)?.["close_time_iso"]);
+      if (iso) await ledgers.record({ ledgerIndex, closeTimeIso: iso });
+    } catch {
+      // best-effort — leave the date blank on failure
+    }
+  }
+}
+
 /**
  * Resolve against only the close times already cached in `ledgers` (the live
  * tail fills these forward as it runs). No upstream calls — the default for
