@@ -46,6 +46,8 @@ export interface IssuanceStatus {
   readonly accounts: number;
   /** Distinct transactions that affected this issuance's balances. */
   readonly transactions: number;
+  /** Lowest ledger a transaction affecting this issuance landed in, or null. */
+  readonly earliestLedger: number | null;
   /** Highest ledger a transaction affecting this issuance landed in, or null. */
   readonly latestLedger: number | null;
   readonly backfill: BackfillSummary;
@@ -191,6 +193,7 @@ export class AdminApi {
       issuance,
       accounts: await this.#accounts.countForIssuance(id),
       transactions: tx.count,
+      earliestLedger: tx.earliestLedger,
       latestLedger: tx.latestLedger,
       backfill: await this.#backfillSummary(id),
       coverage: await this.#coverage(id),
@@ -199,23 +202,29 @@ export class AdminApi {
   }
 
   /**
-   * Transactions that affected *this* issuance's balances, and the latest ledger
-   * one landed in. Scoped via `balance_deltas` (keyed by `issuance_id`), not via
-   * `account_transactions` — an account may hold several issuances from the same
-   * issuer, so joining through it would attribute one issuance's transactions to
-   * every issuance its accounts touch (making sibling MPTs report the same
-   * counts and latest ledger).
+   * Transactions that affected *this* issuance's balances, and the earliest and
+   * latest ledger one landed in. Scoped via `balance_deltas` (keyed by
+   * `issuance_id`), not via `account_transactions` — an account may hold several
+   * issuances from the same issuer, so joining through it would attribute one
+   * issuance's transactions to every issuance its accounts touch (making sibling
+   * MPTs report the same counts and ledgers).
    */
-  async #transactionStats(id: number): Promise<{ count: number; latestLedger: number | null }> {
-    const { rows } = await this.#db.query<{ c: number | string; hi: number | string | null }>(
-      `SELECT count(DISTINCT bd.hash) AS c, max(t.ledger_index) AS hi
+  async #transactionStats(
+    id: number,
+  ): Promise<{ count: number; earliestLedger: number | null; latestLedger: number | null }> {
+    const { rows } = await this.#db.query<{
+      c: number | string;
+      lo: number | string | null;
+      hi: number | string | null;
+    }>(
+      `SELECT count(DISTINCT bd.hash) AS c, min(t.ledger_index) AS lo, max(t.ledger_index) AS hi
        FROM balance_deltas bd
        JOIN transactions t ON t.hash = bd.hash
        WHERE bd.issuance_id = $1`,
       [id],
     );
-    const hi = rows[0]?.hi;
-    return { count: Number(rows[0]?.c ?? 0), latestLedger: hi === null || hi === undefined ? null : Number(hi) };
+    const toNum = (v: number | string | null | undefined) => (v === null || v === undefined ? null : Number(v));
+    return { count: Number(rows[0]?.c ?? 0), earliestLedger: toNum(rows[0]?.lo), latestLedger: toNum(rows[0]?.hi) };
   }
 
   async setEnabled(id: number, enabled: boolean): Promise<boolean> {

@@ -64,7 +64,8 @@ describe("AdminApi", () => {
     const status = (await api.getIssuance(iss.id))!;
     expect(status.accounts).toBe(2);
     expect(status.transactions).toBe(2);
-    expect(status.latestLedger).toBe(190);
+    expect(status.earliestLedger).toBe(120); // T1 at ledger 120
+    expect(status.latestLedger).toBe(190); // T2 at ledger 190
     expect(status.backfill).toMatchObject({ completed: 1, running: 1, totalTx: 7 });
     expect(status.coverage).toEqual({ min: 100, max: 200 });
     expect(status.lastReconciliation).toMatchObject({ passed: true, discrepancies: 0 });
@@ -87,9 +88,9 @@ describe("AdminApi", () => {
 
     const sa = (await api.getIssuance(a.id))!;
     const sb = (await api.getIssuance(b.id))!;
-    // Each issuance reports its own latest ledger, not the shared holder's global max.
-    expect(sa.latestLedger).toBe(100);
-    expect(sb.latestLedger).toBe(200);
+    // Each issuance reports its own earliest/latest ledger, not the shared holder's.
+    expect(sa).toMatchObject({ earliestLedger: 100, latestLedger: 100 });
+    expect(sb).toMatchObject({ earliestLedger: 200, latestLedger: 200 });
     expect(sa.transactions).toBe(1);
     expect(sb.transactions).toBe(1);
   });

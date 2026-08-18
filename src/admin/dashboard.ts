@@ -179,7 +179,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <table>
       <thead><tr>
         <th>ID</th><th>Kind</th><th>Identifier</th><th>Enabled</th>
-        <th>Accounts</th><th>Txns</th><th>Latest</th><th>Backfill</th>
+        <th>Accounts</th><th>Txns</th><th>Earliest</th><th>Latest</th><th>Backfill</th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -275,10 +275,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
     cell(tr, s.transactions);
-    var latTd = document.createElement("td"); latTd.className = "mono";
-    if (s.latestLedger === null) latTd.textContent = "\\u2014";
-    else { var lh = exUrl("ledgers", s.latestLedger); latTd.appendChild(lh ? exLink(s.latestLedger, lh) : document.createTextNode(String(s.latestLedger))); }
-    tr.appendChild(latTd);
+    function ledgerCell(value) {
+      var td = document.createElement("td"); td.className = "mono";
+      if (value === null) td.textContent = "\\u2014";
+      else { var href = exUrl("ledgers", value); td.appendChild(href ? exLink(value, href) : document.createTextNode(String(value))); }
+      tr.appendChild(td);
+    }
+    ledgerCell(s.earliestLedger);
+    ledgerCell(s.latestLedger);
     var bfTd = document.createElement("td");
     var pct = total ? Math.round((bf.completed / total) * 100) : 0;
     bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span>';
