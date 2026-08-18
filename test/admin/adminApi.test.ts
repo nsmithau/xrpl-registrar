@@ -1,3 +1,4 @@
+import { encode } from "xrpl";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AdminApi } from "../../src/admin/adminApi.js";
@@ -5,6 +6,7 @@ import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
+import { hexToBytes } from "../../src/util/hex.js";
 
 describe("AdminApi", () => {
   let db: Database;
@@ -155,15 +157,28 @@ describe("AdminApi", () => {
     expect(await api.latestLedgerSeen()).toBe(250);
   });
 
-  it("returns the most recent transactions across the archive, newest first", async () => {
+  it("returns the most recent transactions with close time (UTC) and result, newest first", async () => {
     const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
+    const meta = (result: string): Uint8Array =>
+      hexToBytes(encode({ TransactionResult: result, TransactionIndex: 0, AffectedNodes: [] } as unknown as Parameters<typeof encode>[0]));
     const txns = new TransactionRepository(db);
-    for (const [hash, ledger, type] of [["A", 100, "Payment"], ["B", 300, "MPTokenAuthorize"], ["C", 200, "Payment"]] as const) {
-      await txns.ingest({ hash, ledgerIndex: ledger, txType: type, txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: [] });
+    for (const [hash, ledger, type, res] of [["A", 100, "Payment", "tesSUCCESS"], ["B", 300, "MPTokenAuthorize", "tecNO_PERMISSION"], ["C", 200, "Payment", "tesSUCCESS"]] as const) {
+      await txns.ingest({ hash, ledgerIndex: ledger, txType: type, txBlob: new Uint8Array([1]), metaBlob: meta(res), provenance: prov, accounts: [] });
     }
+    // The tail records ledger close times; here we seed ledger 300's.
+    await new LedgerTimeRepository(db).record({ ledgerIndex: 300, closeTimeIso: "2026-08-17T01:15:30Z" });
+
     const recent = await api.recentTransactions(2);
     expect(recent.map((r) => r.hash)).toEqual(["B", "C"]); // newest ledger first, limited
-    expect(recent[0]).toEqual({ hash: "B", ledgerIndex: 300, txType: "MPTokenAuthorize" });
+    expect(recent[0]).toEqual({
+      hash: "B",
+      ledgerIndex: 300,
+      txType: "MPTokenAuthorize",
+      closeTimeUtc: "2026-08-17 01:15:30",
+      result: "tecNO_PERMISSION",
+    });
+    // C's ledger has no recorded close time yet → null date; result still decoded.
+    expect(recent[1]).toMatchObject({ hash: "C", closeTimeUtc: null, result: "tesSUCCESS" });
   });
 
   it("enables/disables and returns null for unknown issuances", async () => {

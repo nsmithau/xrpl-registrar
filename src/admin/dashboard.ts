@@ -134,7 +134,9 @@ export const DASHBOARD_HTML = `<!doctype html>
   .modal-err { color: hsl(var(--destructive)); font-size: 13px; min-height: 18px; margin-top: 8px; }
   button.ghost { color: hsl(var(--foreground)); background: transparent; border: 1px solid hsl(var(--border)); }
   button.ghost:hover { filter: none; border-color: hsl(var(--muted-foreground)); }
-  #summary { color: hsl(var(--muted-foreground)); font-size: 13px; margin: 4px 0 12px; }
+  #summary, #recent-summary { color: hsl(var(--muted-foreground)); font-size: 13px; }
+  #summary { margin: 4px 0 12px; }
+  #recent-summary { margin: 22px 0 12px; }
   #meta { color: hsl(var(--muted-foreground)); margin-top: 14px; font-size: 12px; }
   #err { color: hsl(var(--destructive)); font-size: 13px; }
 </style>
@@ -182,10 +184,10 @@ export const DASHBOARD_HTML = `<!doctype html>
       <tbody id="rows"></tbody>
     </table>
   </div>
+  <div id="recent-summary" hidden></div>
   <div id="recent" class="card" hidden>
-    <h3 class="card-title">Recent transactions</h3>
     <table>
-      <thead><tr><th>Ledger</th><th>Transaction</th><th>Type</th></tr></thead>
+      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Transaction</th><th>Type</th><th>Result</th></tr></thead>
       <tbody id="recentRows"></tbody>
     </table>
   </div>
@@ -288,21 +290,24 @@ export const DASHBOARD_HTML = `<!doctype html>
   // The archive's most recent transactions, newest first — refreshed on each
   // poll so a newly-detected transaction shows up within a few seconds.
   function renderRecent(txns) {
-    var box = el("recent"), tb = el("recentRows");
+    var box = el("recent"), sum = el("recent-summary"), tb = el("recentRows");
     tb.textContent = "";
-    if (!txns || !txns.length) { box.hidden = true; return; }
-    box.hidden = false;
+    if (!txns || !txns.length) { box.hidden = true; sum.hidden = true; return; }
+    sum.hidden = false; box.hidden = false;
+    sum.textContent = txns.length + " recent transactions tracked";
     txns.forEach(function (x) {
       var tr = document.createElement("tr");
       var lt = document.createElement("td"); lt.className = "mono";
       var lh = exUrl("ledgers", x.ledgerIndex);
       lt.appendChild(lh ? exLink(x.ledgerIndex, lh) : document.createTextNode(String(x.ledgerIndex)));
       tr.appendChild(lt);
+      cell(tr, x.closeTimeUtc ? x.closeTimeUtc + " UTC" : "\\u2014", x.closeTimeUtc ? "" : "muted");
       var ht = document.createElement("td"); ht.className = "mono";
       var hh = exUrl("transactions", x.hash);
       ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
       tr.appendChild(ht);
       cell(tr, x.txType);
+      cell(tr, x.result || "\\u2014", x.result === "tesSUCCESS" ? "ok" : (x.result ? "bad" : "muted"));
       tb.appendChild(tr);
     });
   }
@@ -316,6 +321,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     setLoggedIn(false);
     el("app").hidden = true;
     el("recent").hidden = true;
+    el("recent-summary").hidden = true;
     el("status").classList.remove("on");
     el("err").textContent = msg || "";
     el("ledger").className = "counter";

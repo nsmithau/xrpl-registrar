@@ -5,6 +5,7 @@ import {
   type DiscoveryStrategy,
   type IssuanceRecord,
 } from "../db/repositories/issuances.js";
+import { decodeMeta } from "../reconcile/incremental.js";
 import { normalizeCurrency } from "../xrpl/currency.js";
 
 import type { ActivityReport, ActivitySource } from "./activity.js";
@@ -30,6 +31,11 @@ export interface RecentTransaction {
   readonly hash: string;
   readonly ledgerIndex: number;
   readonly txType: string;
+  /** Ledger close time as `YYYY-MM-DD HH:MM:SS` (UTC), or null if not yet
+   * recorded (the tail records close times as ledgers close). */
+  readonly closeTimeUtc: string | null;
+  /** `TransactionResult` from the metadata (e.g. `tesSUCCESS`), or null. */
+  readonly result: string | null;
 }
 
 export interface BackfillSummary {
@@ -129,13 +135,36 @@ export class AdminApi {
   }
 
   /** The most recent transactions across the whole archive, newest first — the
-   * dashboard's live activity feed (refreshed on its poll). */
+   * dashboard's live activity feed (refreshed on its poll). The close time comes
+   * from the tail-recorded `ledgers` table; the result is decoded from metadata. */
   async recentTransactions(limit = 5): Promise<RecentTransaction[]> {
-    const { rows } = await this.#db.query<{ hash: string; ledger_index: number | string; tx_type: string }>(
-      "SELECT hash, ledger_index, tx_type FROM transactions ORDER BY ledger_index DESC, hash LIMIT $1",
+    const { rows } = await this.#db.query<{
+      hash: string;
+      ledger_index: number | string;
+      tx_type: string;
+      close_time_utc: string | null;
+      meta_blob: Uint8Array;
+    }>(
+      `SELECT t.hash, t.ledger_index, t.tx_type,
+              to_char(l.close_time_iso AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS close_time_utc,
+              t.meta_blob
+       FROM transactions t
+       LEFT JOIN ledgers l ON l.ledger_index = t.ledger_index
+       ORDER BY t.ledger_index DESC, t.hash
+       LIMIT $1`,
       [limit],
     );
-    return rows.map((r) => ({ hash: r.hash, ledgerIndex: Number(r.ledger_index), txType: r.tx_type }));
+    return rows.map((r) => {
+      const meta = decodeMeta(r.meta_blob);
+      const result = meta && typeof meta["TransactionResult"] === "string" ? (meta["TransactionResult"] as string) : null;
+      return {
+        hash: r.hash,
+        ledgerIndex: Number(r.ledger_index),
+        txType: r.tx_type,
+        closeTimeUtc: r.close_time_utc ?? null,
+        result,
+      };
+    });
   }
 
   /** The latest ledger the archive has observed (max recorded close time) —
