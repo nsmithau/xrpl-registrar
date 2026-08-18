@@ -269,7 +269,9 @@ export const DASHBOARD_HTML = `<!doctype html>
       var mptHref = exUrl("mpt", i.mptIssuanceId);
       if (i.ticker) identifierCell(tr, i.ticker, i.mptIssuanceId, i.mptIssuanceId, mptHref);
       else identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId, i.mptIssuanceId, mptHref);
-    } else identifierCell(tr, i.currency + " / " + short(i.issuerAccount), i.issuerAccount, i.issuerAccount, exUrl("accounts", i.issuerAccount));
+      // IOU: show only the currency code; the issuer is the hover tooltip, the
+      // copy value, and the explorer link.
+    } else identifierCell(tr, i.currency, i.issuerAccount, i.issuerAccount, exUrl("accounts", i.issuerAccount));
     cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
