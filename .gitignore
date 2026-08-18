@@ -15,3 +15,6 @@ docs/*
 .env.*
 !.env.example
 .DS_Store
+
+# Rate-limit probe output
+probe-results-*.json

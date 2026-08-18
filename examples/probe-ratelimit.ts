@@ -13,9 +13,12 @@
  * runs. This script is NOT run automatically — invoke it deliberately.
  *
  *   pnpm probe                                   # testnet clio, WS+HTTP, all phases
- *   PROBE_TARGETS=testnet,mainnet pnpm probe     # add s2.ripple.com
- *   PROBE_TRANSPORTS=ws PROBE_PHASES=concurrency,rate pnpm probe
- *   PROBE_METHODS=server_info,ledger_expand PROBE_MAX_CONCURRENCY=48 pnpm probe
+ *   PROBE_TARGETS=testnet,mainnet PROBE_ACCOUNT=r... pnpm probe   # mainnet needs an active account for account_tx
+ *   PROBE_TRANSPORTS=ws PROBE_PHASES=concurrency,rate,recovery pnpm probe
+ *   PROBE_METHODS=server_info,account_tx PROBE_MAX_CONCURRENCY=48 pnpm probe
+ *
+ * Methods (label): server_info (cheap), ledger, ledger_expand (heavy, account-agnostic),
+ * account_tx (heavy, the backfill workload — probes PROBE_ACCOUNT, default a testnet account).
  */
 import { writeFileSync } from "node:fs";
 
@@ -45,13 +48,34 @@ const TARGETS: Record<string, Target> = {
   },
 };
 
-// --- Methods: args by name (command is the key). A cheap one and a heavy one
-// (a fully-expanded binary ledger fetch — the closest account-agnostic proxy for
-// backfill load). Add `account_tx` via PROBE_ACCOUNT if you want the real thing.
-const METHODS: Record<string, Record<string, unknown>> = {
-  server_info: {},
-  ledger: { ledger_index: "validated" },
-  ledger_expand: { ledger_index: "validated", transactions: true, expand: true, binary: true },
+// --- Methods: label → { command, params }. The label is what you pass in
+// PROBE_METHODS; `command` is the real Clio command (they differ for the heavy
+// ones). `account_tx` binary limit=200 is the backfill workhorse — the knee that
+// actually matters. `ledger_expand` is an account-agnostic heavy fallback (use it
+// for mainnet unless you set PROBE_ACCOUNT to an active mainnet account).
+const PROBE_ACCOUNT = process.env.PROBE_ACCOUNT ?? "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV"; // testnet default
+interface Method {
+  readonly command: string;
+  readonly params: Record<string, unknown>;
+}
+const METHODS: Record<string, Method> = {
+  server_info: { command: "server_info", params: {} },
+  ledger: { command: "ledger", params: { ledger_index: "validated" } },
+  ledger_expand: {
+    command: "ledger",
+    params: { ledger_index: "validated", transactions: true, expand: true, binary: true },
+  },
+  account_tx: {
+    command: "account_tx",
+    params: {
+      account: PROBE_ACCOUNT,
+      ledger_index_min: -1,
+      ledger_index_max: -1,
+      binary: true,
+      forward: true,
+      limit: 200,
+    },
+  },
 };
 
 // --- Config from env -------------------------------------------------------
@@ -69,7 +93,7 @@ const num = (v: string | undefined, fallback: number): number =>
 const CFG = {
   targets: csv(env.PROBE_TARGETS, ["testnet"]),
   transports: csv(env.PROBE_TRANSPORTS, ["ws", "http"]) as ("ws" | "http")[],
-  methods: csv(env.PROBE_METHODS, ["server_info", "ledger_expand"]),
+  methods: csv(env.PROBE_METHODS, ["server_info", "account_tx"]),
   phases: csv(env.PROBE_PHASES, ["baseline", "concurrency", "rate", "sustained", "recovery"]),
   concurrencyLevels: csv(env.PROBE_CONCURRENCY_LEVELS, ["1", "2", "4", "8", "16", "32"]).map(
     Number,
@@ -120,7 +144,8 @@ async function wsTransport(target: Target): Promise<Transport> {
       const started = nowMs();
       try {
         if (!client.isConnected()) await client.connect();
-        const req = { command: method, api_version: 2, ...METHODS[method] };
+        const m = METHODS[method]!;
+        const req = { command: m.command, api_version: 2, ...m.params };
         await client.request(req as Parameters<Client["request"]>[0]);
         return { ok: true, latencyMs: nowMs() - started };
       } catch (err) {
@@ -141,7 +166,8 @@ function httpTransport(target: Target): Transport {
     kind: "http",
     async send(method) {
       const started = nowMs();
-      const body = JSON.stringify({ method, params: [{ api_version: 2, ...METHODS[method] }] });
+      const m = METHODS[method]!;
+      const body = JSON.stringify({ method: m.command, params: [{ api_version: 2, ...m.params }] });
       try {
         const res = await fetch(target.http, {
           method: "POST",
@@ -444,13 +470,27 @@ async function phaseRecovery(
 
 // --- Main -------------------------------------------------------------------
 async function main(): Promise<void> {
+  const unknown = CFG.methods.filter((m) => !METHODS[m]);
+  if (unknown.length) {
+    console.error(
+      `unknown method(s): ${unknown.join(", ")} (known: ${Object.keys(METHODS).join(", ")})`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   console.log(
     `Rate-limit probe — targets=${CFG.targets.join(",")} transports=${CFG.transports.join(",")} methods=${CFG.methods.join(",")} phases=${CFG.phases.join(",")}`,
   );
+  if (CFG.methods.includes("account_tx")) console.log(`account_tx probes account ${PROBE_ACCOUNT}`);
   if (CFG.targets.includes("mainnet")) {
     console.log(
       "⚠️  mainnet (s2.ripple.com) is a shared public cluster — run off-peak and keep the peak modest.",
     );
+    if (CFG.methods.includes("account_tx") && !process.env.PROBE_ACCOUNT) {
+      console.log(
+        "⚠️  account_tx uses the testnet default account — set PROBE_ACCOUNT to an active mainnet account.",
+      );
+    }
   }
 
   for (const targetKey of CFG.targets) {
