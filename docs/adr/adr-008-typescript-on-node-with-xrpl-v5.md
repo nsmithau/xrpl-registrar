@@ -4,7 +4,7 @@
 
 ## Context
 
-The ingestor is a data-engineering workload — parallel backfill fan-out, sustained bulk Postgres writes, long-running memory stability, and binary blob parsing if ingesting with `binary: true`.
+The registrar is a data-engineering workload — parallel backfill fan-out, sustained bulk Postgres writes, long-running memory stability, and binary blob parsing if ingesting with `binary: true`.
 
 ## Decision
 
@@ -20,7 +20,7 @@ TypeScript on Node, using `xrpl` v5.
 
 ## Trade-off Analysis
 
-The ingestor barely uses the client library — it needs WebSocket subscribe, JSON-RPC with `marker` pagination, and the binary codec, all of which every option provides. So this was never an API-coverage decision. It is a contributor-pool versus runtime-ergonomics decision.
+The registrar barely uses the client library — it needs WebSocket subscribe, JSON-RPC with `marker` pagination, and the binary codec, all of which every option provides. So this was never an API-coverage decision. It is a contributor-pool versus runtime-ergonomics decision.
 
 Because the project ships as an open-source reference implementation rather than a hosted service, adoption and external contribution *are* the objective. That is the axis xrpl.js wins on decisively.
 

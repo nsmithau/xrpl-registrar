@@ -19,7 +19,7 @@ Mirror Clio's request and response shapes for a supported method set, at `api_ve
 
 #### Option B: Mirror Clio *(chosen)*
 
-**Pros:** Existing xrpl.js code works by changing a URL. Yields a free correctness harness — the same request can be run against the ingestor and upstream Clio and the responses diffed. Makes upstream pass-through natural, since the protocol is identical.
+**Pros:** Existing xrpl.js code works by changing a URL. Yields a free correctness harness — the same request can be run against the registrar and upstream Clio and the responses diffed. Makes upstream pass-through natural, since the protocol is identical.
 **Cons:** Inherits Clio's quirks. Requires deciding deliberately where to deviate.
 
 ## Version choice

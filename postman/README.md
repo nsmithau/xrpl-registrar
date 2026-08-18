@@ -1,12 +1,12 @@
 # Postman collection
 
-`xrpl-ingestor.postman_collection.json` — the **Admin API** and the tool-specific
+`xrpl-registrar.postman_collection.json` — the **Admin API** and the tool-specific
 **`archive_*` reporting extensions**, plus a couple of Clio-compatible read
 examples for convenience.
 
 ## Import
 
-Postman → **Import** → select `xrpl-ingestor.postman_collection.json`. The
+Postman → **Import** → select `xrpl-registrar.postman_collection.json`. The
 collection ships its own variables (no separate environment needed), but you can
 promote them to an environment if you prefer.
 

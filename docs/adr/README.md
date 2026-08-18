@@ -10,7 +10,7 @@ Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted.
 
 | ADR | Decision |
 |-----|----------|
-| [ADR-001](adr-001-build-a-purpose-built-ingestor-rather-than.md) | Build a purpose-built ingestor rather than forking Stellar Horizon |
+| [ADR-001](adr-001-build-a-purpose-built-registrar-rather-than.md) | Build a purpose-built registrar rather than forking Stellar Horizon |
 | [ADR-002](adr-002-source-all-history-from-clio-never-from.md) | Source all history from Clio, never from `xrpld` |
 | [ADR-003](adr-003-public-clio-cluster-for-alpha-beta.md) | Use a public Clio cluster for Alpha and Beta |
 | [ADR-004](adr-004-mirror-the-clio-api-api-version-2.md) | Mirror the Clio API, `api_version 2` only |

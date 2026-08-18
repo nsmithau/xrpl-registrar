@@ -1,4 +1,4 @@
-# ADR-001: Build a purpose-built ingestor rather than forking Stellar Horizon
+# ADR-001: Build a purpose-built registrar rather than forking Stellar Horizon
 
 **Date:** 2026-08-12
 
@@ -8,7 +8,7 @@ An institutional token issuer needs long-horizon XRPL transaction history for th
 
 ## Decision
 
-Build a purpose-built XRPL ingestor. Take the *concept* from Horizon — whitelist applied at ingest, admin API for filter rules, non-retroactive filtering — not the code.
+Build a purpose-built XRPL registrar. Take the *concept* from Horizon — whitelist applied at ingest, admin API for filter rules, non-retroactive filtering — not the code.
 
 ## Options Considered
 
@@ -25,7 +25,7 @@ Build a purpose-built XRPL ingestor. Take the *concept* from Horizon — whiteli
 
 **Cons:** Horizon's substance is Stellar-specific — the XDR codec, captive-core and history-archive ingest backends, and a Postgres schema modelled on Stellar's operation/effect/trade taxonomy. None of it maps to XRPL. The reusable part, the filter predicate in the ingest loop plus an admin CRUD endpoint, is the cheapest part to write from scratch. The API-compatibility argument collapses on MPTs specifically: Stellar models holdings as trustlines on a `code:issuer` pair and has no MPT equivalent, so new tables and endpoints are needed anyway, and the issuer rewrites their calculation layer regardless.
 
-#### Option B: Purpose-built ingestor over Clio *(chosen)*
+#### Option B: Purpose-built registrar over Clio *(chosen)*
 
 **Pros:** Small surface. Native XRPL data model. No foreign codebase to maintain.
 **Cons:** Filtering and backfill logic written from scratch; no inherited test coverage.

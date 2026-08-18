@@ -5,7 +5,7 @@ import type { ClioRawResponse, ClioRequest } from "./types.js";
 /**
  * The seam between the Clio client and the network. The client depends only on
  * this interface, which keeps the governor/retry/provenance logic testable
- * without a socket and keeps xrpl.js swappable (the ingestor barely uses the
+ * without a socket and keeps xrpl.js swappable (the registrar barely uses the
  * library).
  */
 export interface ClioTransport {
@@ -58,7 +58,7 @@ export class XrplTransport implements ClioTransport {
 
   async request(req: ClioRequest): Promise<ClioRawResponse> {
     // xrpl.js's request typing is a large discriminated union keyed on
-    // `command`; the ingestor issues arbitrary Clio commands, so we cross the
+    // `command`; the registrar issues arbitrary Clio commands, so we cross the
     // boundary with a cast here and keep our own light types on our side.
     const response = await this.#client.request(req as unknown as Parameters<Client["request"]>[0]);
     return response as unknown as ClioRawResponse;

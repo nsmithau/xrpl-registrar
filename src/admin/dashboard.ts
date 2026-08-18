@@ -17,7 +17,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>XRPL Ingestor · operator dashboard</title>
+<title>XRPL Registrar · operator dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -149,7 +149,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     <path fill="currentColor" d="M199.828 56.1533H220.547L177.367 96.6224C169.62 103.632 159.544 107.514 149.097 107.514C138.649 107.514 128.573 103.632 120.826 96.6224L77.6465 56.1533H98.3651L131.089 86.7471C135.976 91.232 142.367 93.7204 149 93.7204C155.633 93.7204 162.024 91.232 166.911 86.7471L199.828 56.1533Z"/>
     <path fill="currentColor" d="M98.1717 168.459H77.4531L120.827 127.796C128.531 120.7 138.622 116.761 149.097 116.761C159.571 116.761 169.663 120.7 177.367 127.796L220.741 168.459H200.022L167.105 137.478C162.218 132.993 155.826 130.505 149.194 130.505C142.561 130.505 136.169 132.993 131.283 137.478L98.1717 168.459Z"/>
   </svg>
-  <h1>XRPL Ingestor</h1>
+  <h1>XRPL Registrar</h1>
   <span class="sub">operator dashboard · read-only</span>
   <button id="authbtn" class="authbtn">Login</button>
 </header>

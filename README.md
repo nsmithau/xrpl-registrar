@@ -1,6 +1,6 @@
-# xrpl-ingestor
+# xrpl-registrar
 
-A filtered XRPL archive ingestor: maintains a local, verifiable transaction archive scoped to one or more token issuances (MPT or IOU), sourced from a full-history [Clio](https://xrpl.org/docs/concepts/networks-and-servers/the-clio-server) server, and served through a Clio-compatible API.
+A filtered XRPL archive registrar: maintains a local, verifiable transaction archive scoped to one or more token issuances (MPT or IOU), sourced from a full-history [Clio](https://xrpl.org/docs/concepts/networks-and-servers/the-clio-server) server, and served through a Clio-compatible API.
 
 **Status: working prototype, verified end-to-end against XRPL testnet.** The full pipeline is implemented and unit-tested — discovery, resumable backfill, live tail, storage, reconciliation, the read API, an authenticated admin API, and a read-only dashboard. Not yet hardened for production (see [Roadmap](#roadmap)).
 
@@ -52,7 +52,7 @@ CLIO_ENDPOINT=wss://<testnet-clio> pnpm demo   # override issuance with MPT_ISSU
 
 ## Registering issuances (Admin API)
 
-The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the ingestor derives and maintains the account set itself: on registration it sweeps the issuer's history — discovering every holder and backfilling their transactions in one pass — then captures ledger close times and derives balances, all in the background.
+The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the registrar derives and maintains the account set itself: on registration it sweeps the issuer's history — discovering every holder and backfilling their transactions in one pass — then captures ledger close times and derives balances, all in the background.
 
 The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. API clients (curl, Postman, xrpl.js) authenticate with `Authorization: Bearer <token>` on every request. The browser dashboard instead signs in once via `POST /admin/login`, which exchanges the token for an httpOnly, `SameSite=Strict` session cookie — so the token is never kept in JS-readable storage. Never expose this port publicly — it surfaces account addresses and archive scope.
 

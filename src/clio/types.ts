@@ -2,7 +2,7 @@
  * Wire and envelope types for the Clio client.
  *
  * We deliberately keep our own light request/response shapes at this boundary
- * rather than leaning on xrpl.js's heavily-overloaded types: the ingestor
+ * rather than leaning on xrpl.js's heavily-overloaded types: the registrar
  * barely uses the client library, and a thin, explicit surface keeps the
  * transport swappable and the client unit-testable without a socket.
  */

@@ -1,5 +1,5 @@
 /**
- * xrpl-ingestor — public entry point.
+ * xrpl-registrar — public entry point.
  *
  * Implemented so far: the Clio client and its global concurrency governor —
  * the single upstream chokepoint every other component will be built on top of

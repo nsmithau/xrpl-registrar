@@ -1,23 +1,23 @@
 {
-  "name": "xrpl-ingestor",
+  "name": "xrpl-registrar",
   "version": "0.0.0",
   "description": "Open-source, self-hosted XRPL transaction archive scoped to token issuances, sourced from Clio.",
   "license": "Apache-2.0",
   "author": "nsmithau (https://github.com/nsmithau)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nsmithau/xrpl-ingestor.git"
+    "url": "git+https://github.com/nsmithau/xrpl-registrar.git"
   },
-  "homepage": "https://github.com/nsmithau/xrpl-ingestor#readme",
+  "homepage": "https://github.com/nsmithau/xrpl-registrar#readme",
   "bugs": {
-    "url": "https://github.com/nsmithau/xrpl-ingestor/issues"
+    "url": "https://github.com/nsmithau/xrpl-registrar/issues"
   },
   "keywords": [
     "xrpl",
     "clio",
     "xrpld",
     "archive",
-    "ingestor",
+    "registrar",
     "mpt",
     "iou"
   ],

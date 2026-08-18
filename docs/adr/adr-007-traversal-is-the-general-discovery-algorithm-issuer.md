@@ -4,7 +4,7 @@
 
 ## Context
 
-The driving issuer needs history for **any holder at any time**, not just current holders. `mpt_holders` is point-in-time and cannot answer this. The ingestor is generic and must handle issuances beyond any single token.
+The driving issuer needs history for **any holder at any time**, not just current holders. `mpt_holders` is point-in-time and cannot answer this. The registrar is generic and must handle issuances beyond any single token.
 
 ## Decision
 
@@ -37,6 +37,6 @@ Non-auth MPTs have no chokepoint, because holder-to-holder transfers never touch
 
 - Where two strategies apply they should produce **identical** sets. Run both and diff — a mismatch is a defect signal, and agreement is a correctness metric.
 - XRPScan Console supports full-history search on `MPTokenIssuanceID`, giving an independent third derivation. Valuable as an **audit cross-check**, not as a source of truth: it is third-party and beta, and making it authoritative would reintroduce the external dependency this project removes. Transactions always come from Clio.
-- The configuration unit becomes the **issuance**, not the account list. The ingestor derives and maintains the account set. Direct account whitelisting survives for non-token cases but is no longer the primary interface.
+- The configuration unit becomes the **issuance**, not the account list. The registrar derives and maintains the account set. Direct account whitelisting survives for non-token cases but is no longer the primary interface.
 - The whitelist is **append-only**. Exited holders are never pruned.
 - Non-auth MPT backfill is a distinct performance tier. The <24h target applies to issuer-scoped discovery; traversal performance should be published as a measured characteristic rather than promised.

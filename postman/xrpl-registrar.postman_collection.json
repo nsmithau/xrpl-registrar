@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "b1e7a3c2-9d84-4f16-8a0e-7c5f2d3a1b90",
-    "name": "XRPL Ingestor",
-    "description": "Admin API and tool-specific reporting endpoints for a self-hosted XRPL filtered-archive ingestor.\n\nTwo ports:\n- Read API (`readUrl`, default http://127.0.0.1:51234) — public, Clio-compatible + `archive_*` reporting extensions.\n- Admin API (`adminUrl`, default http://127.0.0.1:51235) — authenticated with `adminToken`; also serves the read-only dashboard at `/`.\n\nSetup: set `adminToken` to your ADMIN_TOKEN, and set `mptIssuanceId` / `account` (or `currency` + `issuer`) to real values. Typical flow: Admin → Register issuance (saves `issuanceId`) → Get issuance status until backfill completes → Reporting extensions.\n\n`api_version: 2` is required on every read-API call.",
+    "name": "XRPL Registrar",
+    "description": "Admin API and tool-specific reporting endpoints for a self-hosted XRPL filtered-archive registrar.\n\nTwo ports:\n- Read API (`readUrl`, default http://127.0.0.1:51234) — public, Clio-compatible + `archive_*` reporting extensions.\n- Admin API (`adminUrl`, default http://127.0.0.1:51235) — authenticated with `adminToken`; also serves the read-only dashboard at `/`.\n\nSetup: set `adminToken` to your ADMIN_TOKEN, and set `mptIssuanceId` / `account` (or `currency` + `issuer`) to real values. Typical flow: Admin → Register issuance (saves `issuanceId`) → Get issuance status until backfill completes → Reporting extensions.\n\n`api_version: 2` is required on every read-API call.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
