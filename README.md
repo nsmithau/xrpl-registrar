@@ -60,15 +60,15 @@ The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 
 # Register an MPT issuance
 curl -s http://127.0.0.1:51235/admin/issuances \
   -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
-  -d '{"kind":"mpt","mptIssuanceId":"<48-hex MPTokenIssuanceID>","discoveryStrategy":"auto"}'
+  -d '{"kind":"mpt","mptIssuanceId":"<48-hex MPTokenIssuanceID>"}'
 
 # Register an IOU issuance
 curl -s http://127.0.0.1:51235/admin/issuances \
   -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' \
-  -d '{"kind":"iou","currency":"USD","issuer":"rEXAMPLE...","discoveryStrategy":"trustline"}'
+  -d '{"kind":"iou","currency":"USD","issuer":"rEXAMPLE..."}'
 ```
 
-Optional fields: `backfillFromLedger` (lower-bound the issuer sweep) and `discoveryStrategy` (`auto` | `authorization` | `trustline` | `traversal`) — the latter is retained for the standalone discovery primitive and cross-checks; the default ingest path is a single issuer `account_tx` sweep and does not consult it.
+`backfillFromLedger` is an optional field that lower-bounds the issuer sweep. (The ingest path is a single issuer `account_tx` sweep that discovers holders and backfills history in one pass, so there is no per-issuance discovery strategy to configure.)
 
 For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`RLUSD`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `RLUSD` and `524C555344…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
 

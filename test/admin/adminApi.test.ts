@@ -22,7 +22,7 @@ describe("AdminApi", () => {
 
   it("registers MPT and IOU issuances and lists them", async () => {
     const mpt = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A", backfillFromLedger: 100 });
-    const iou = await api.registerIssuance({ kind: "iou", currency: "USD", issuer: "rISS", discoveryStrategy: "trustline" });
+    const iou = await api.registerIssuance({ kind: "iou", currency: "USD", issuer: "rISS" });
     expect(mpt.kind).toBe("mpt");
     expect(mpt.backfillFromLedger).toBe(100);
     expect(iou.issuerAccount).toBe("rISS");

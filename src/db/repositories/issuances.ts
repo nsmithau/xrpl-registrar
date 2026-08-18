@@ -1,12 +1,8 @@
 import type { Queryable, Row } from "../database.js";
 
-export type DiscoveryStrategy = "auto" | "authorization" | "trustline" | "traversal";
-
 export interface NewMptIssuance {
   readonly kind: "mpt";
   readonly mptIssuanceId: string;
-  readonly requiresAuth?: boolean;
-  readonly discoveryStrategy?: DiscoveryStrategy;
   readonly backfillFromLedger?: number;
   readonly enabled?: boolean;
 }
@@ -15,7 +11,6 @@ export interface NewIouIssuance {
   readonly kind: "iou";
   readonly currency: string;
   readonly issuerAccount: string;
-  readonly discoveryStrategy?: DiscoveryStrategy;
   readonly backfillFromLedger?: number;
   readonly enabled?: boolean;
 }
@@ -30,8 +25,6 @@ export interface IssuanceRecord {
   readonly issuerAccount: string | null;
   /** Ticker from the MPT's on-ledger metadata (MPT only), or null. */
   readonly ticker: string | null;
-  readonly discoveryStrategy: string;
-  readonly requiresAuth: boolean | null;
   readonly backfillFromLedger: number;
   readonly enabled: boolean;
   readonly createdAt: string;
@@ -44,8 +37,6 @@ interface IssuanceRow extends Row {
   currency: string | null;
   issuer_account: string | null;
   ticker: string | null;
-  discovery_strategy: string;
-  requires_auth: boolean | null;
   backfill_from_ledger: number | string;
   enabled: boolean;
   created_at: unknown;
@@ -63,8 +54,6 @@ function mapRow(row: IssuanceRow): IssuanceRecord {
     currency: row.currency,
     issuerAccount: row.issuer_account,
     ticker: row.ticker,
-    discoveryStrategy: row.discovery_strategy,
-    requiresAuth: row.requires_auth,
     backfillFromLedger: Number(row.backfill_from_ledger),
     enabled: row.enabled,
     createdAt: toIso(row.created_at),
@@ -72,7 +61,7 @@ function mapRow(row: IssuanceRow): IssuanceRecord {
 }
 
 const COLUMNS = `id, kind, mpt_issuance_id, currency, issuer_account, ticker,
-  discovery_strategy, requires_auth, backfill_from_ledger, enabled, created_at`;
+  backfill_from_ledger, enabled, created_at`;
 
 /** CRUD for configured issuances — the unit of configuration. */
 export class IssuanceRepository {
@@ -83,40 +72,18 @@ export class IssuanceRepository {
   }
 
   async create(input: NewIssuance): Promise<IssuanceRecord> {
-    const common = {
-      discoveryStrategy: input.discoveryStrategy ?? "auto",
-      backfillFromLedger: input.backfillFromLedger ?? 0,
-      enabled: input.enabled ?? true,
-    };
+    const backfillFromLedger = input.backfillFromLedger ?? 0;
+    const enabled = input.enabled ?? true;
 
     const params =
       input.kind === "mpt"
-        ? [
-            "mpt",
-            input.mptIssuanceId,
-            null,
-            null,
-            common.discoveryStrategy,
-            input.requiresAuth ?? null,
-            common.backfillFromLedger,
-            common.enabled,
-          ]
-        : [
-            "iou",
-            null,
-            input.currency,
-            input.issuerAccount,
-            common.discoveryStrategy,
-            null,
-            common.backfillFromLedger,
-            common.enabled,
-          ];
+        ? ["mpt", input.mptIssuanceId, null, null, backfillFromLedger, enabled]
+        : ["iou", null, input.currency, input.issuerAccount, backfillFromLedger, enabled];
 
     const { rows } = await this.#db.query<IssuanceRow>(
       `INSERT INTO issuances
-         (kind, mpt_issuance_id, currency, issuer_account,
-          discovery_strategy, requires_auth, backfill_from_ledger, enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (kind, mpt_issuance_id, currency, issuer_account, backfill_from_ledger, enabled)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING ${COLUMNS}`,
       params,
     );

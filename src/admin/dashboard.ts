@@ -178,7 +178,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div class="card">
     <table>
       <thead><tr>
-        <th>ID</th><th>Kind</th><th>Identifier</th><th>Strategy</th><th>Enabled</th>
+        <th>ID</th><th>Kind</th><th>Identifier</th><th>Enabled</th>
         <th>Accounts</th><th>Txns</th><th>Latest</th><th>Backfill</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -272,7 +272,6 @@ export const DASHBOARD_HTML = `<!doctype html>
       // IOU: show only the currency code; the issuer is the hover tooltip, the
       // copy value, and the explorer link.
     } else identifierCell(tr, i.currency, i.issuerAccount, i.issuerAccount, exUrl("accounts", i.issuerAccount));
-    cell(tr, i.discoveryStrategy);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
     cell(tr, s.transactions);

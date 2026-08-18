@@ -43,10 +43,10 @@
                 "issuances"
               ]
             },
-            "description": "Register an MPT issuance by its 48-hex MPTokenIssuanceID. `discoveryStrategy` is optional (auto | authorization | trustline | traversal); `backfillFromLedger` is optional. On success returns 201 `{ issuance }`; this request saves the new id into the `issuanceId` variable.",
+            "description": "Register an MPT issuance by its 48-hex MPTokenIssuanceID. `backfillFromLedger` is optional. On success returns 201 `{ issuance }`; this request saves the new id into the `issuanceId` variable.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"kind\": \"mpt\",\n  \"mptIssuanceId\": \"{{mptIssuanceId}}\",\n  \"discoveryStrategy\": \"auto\"\n}",
+              "raw": "{\n  \"kind\": \"mpt\",\n  \"mptIssuanceId\": \"{{mptIssuanceId}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -91,10 +91,10 @@
                 "issuances"
               ]
             },
-            "description": "Register an IOU issuance by currency + issuer account. `discoveryStrategy` defaults to auto (trustline is the natural fit for IOUs).",
+            "description": "Register an IOU issuance by currency + issuer account. `backfillFromLedger` is optional.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"kind\": \"iou\",\n  \"currency\": \"{{currency}}\",\n  \"issuer\": \"{{issuer}}\",\n  \"discoveryStrategy\": \"trustline\"\n}",
+              "raw": "{\n  \"kind\": \"iou\",\n  \"currency\": \"{{currency}}\",\n  \"issuer\": \"{{issuer}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -706,7 +706,7 @@
     },
     {
       "key": "mptIssuanceId",
-      "value": "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1",
+      "value": "",
       "type": "string"
     },
     {
@@ -716,7 +716,7 @@
     },
     {
       "key": "currency",
-      "value": "USD",
+      "value": "",
       "type": "string"
     },
     {
@@ -726,7 +726,7 @@
     },
     {
       "key": "issuanceId",
-      "value": "1",
+      "value": "",
       "type": "string"
     }
   ]

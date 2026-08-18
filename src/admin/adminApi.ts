@@ -1,10 +1,6 @@
 import type { Database } from "../db/database.js";
 import { AccountRepository } from "../db/repositories/accounts.js";
-import {
-  IssuanceRepository,
-  type DiscoveryStrategy,
-  type IssuanceRecord,
-} from "../db/repositories/issuances.js";
+import { IssuanceRepository, type IssuanceRecord } from "../db/repositories/issuances.js";
 import { decodeMeta } from "../reconcile/incremental.js";
 import { normalizeCurrency } from "../xrpl/currency.js";
 
@@ -14,7 +10,6 @@ import type { CloseTimeFiller } from "../api/ledgerTime.js";
 export interface RegisterMptIssuance {
   readonly kind: "mpt";
   readonly mptIssuanceId: string;
-  readonly discoveryStrategy?: DiscoveryStrategy;
   readonly backfillFromLedger?: number;
 }
 
@@ -22,7 +17,6 @@ export interface RegisterIouIssuance {
   readonly kind: "iou";
   readonly currency: string;
   readonly issuer: string;
-  readonly discoveryStrategy?: DiscoveryStrategy;
   readonly backfillFromLedger?: number;
 }
 
@@ -99,7 +93,6 @@ export class AdminApi {
       return this.#issuances.create({
         kind: "mpt",
         mptIssuanceId: input.mptIssuanceId,
-        ...(input.discoveryStrategy ? { discoveryStrategy: input.discoveryStrategy } : {}),
         ...(input.backfillFromLedger !== undefined
           ? { backfillFromLedger: input.backfillFromLedger }
           : {}),
@@ -111,7 +104,6 @@ export class AdminApi {
       // code the archive matches against, and reject a malformed one outright.
       currency: normalizeCurrency(input.currency),
       issuerAccount: input.issuer,
-      ...(input.discoveryStrategy ? { discoveryStrategy: input.discoveryStrategy } : {}),
       ...(input.backfillFromLedger !== undefined
         ? { backfillFromLedger: input.backfillFromLedger }
         : {}),

@@ -20,15 +20,12 @@ describe("IssuanceRepository", () => {
     const created = await repo.create({
       kind: "mpt",
       mptIssuanceId: "00000000ABCDEF",
-      requiresAuth: true,
     });
 
     expect(created.id).toBeGreaterThan(0);
     expect(created.kind).toBe("mpt");
     expect(created.mptIssuanceId).toBe("00000000ABCDEF");
     expect(created.currency).toBeNull();
-    expect(created.requiresAuth).toBe(true);
-    expect(created.discoveryStrategy).toBe("auto");
     expect(created.enabled).toBe(true);
     expect(created.backfillFromLedger).toBe(0);
     expect(new Date(created.createdAt).toISOString()).toBe(created.createdAt);
@@ -42,7 +39,6 @@ describe("IssuanceRepository", () => {
       kind: "iou",
       currency: "USD",
       issuerAccount: "rIssuerExample",
-      discoveryStrategy: "trustline",
     });
 
     expect(iou.kind).toBe("iou");

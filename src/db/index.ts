@@ -12,7 +12,6 @@ export {
   type NewMptIssuance,
   type NewIouIssuance,
   type IssuanceRecord,
-  type DiscoveryStrategy,
 } from "./repositories/issuances.js";
 export {
   TransactionRepository,
