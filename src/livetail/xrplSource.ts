@@ -49,6 +49,11 @@ export interface XrplTailSourceOptions {
   readonly accounts: string[];
   /** Governed client used to fetch canonical binary blobs by hash. */
   readonly reader: ClioReader;
+  /** The in-scope accounts a streamed transaction touches — determines whether
+   * to ingest it and which accounts to associate. Defaults to any subscribed
+   * account the transaction affects; inject `issuanceScope` to ingest only
+   * transactions relevant to a tracked issuance. */
+  readonly scopeOf?: (txJson: unknown, meta: unknown) => string[];
   readonly connectionTimeout?: number;
   readonly logger?: Logger;
 }
@@ -69,6 +74,7 @@ export class XrplTailSource implements TailSource {
   readonly #reader: ClioReader;
   #accounts: string[];
   #scope: Set<string>;
+  readonly #scopeOf: (txJson: unknown, meta: unknown) => string[];
   readonly #queue = new EventQueue<TailEvent>();
   readonly #logger: Logger;
   #started = false;
@@ -83,6 +89,7 @@ export class XrplTailSource implements TailSource {
     this.#reader = options.reader;
     this.#accounts = options.accounts;
     this.#scope = new Set(options.accounts);
+    this.#scopeOf = options.scopeOf ?? ((txJson, meta) => affectedAccounts(txJson, meta, this.#scope));
     this.#logger = options.logger ?? nullLogger;
   }
 
@@ -158,10 +165,9 @@ export class XrplTailSource implements TailSource {
       asString(asRecord(record["transaction"])?.["hash"]);
     if (!hash) return;
 
-    const touched = affectedAccounts(
+    const touched = this.#scopeOf(
       record["tx_json"] ?? record["transaction"],
       record["meta"] ?? record["metaData"],
-      this.#scope,
     );
     if (touched.length === 0) return;
 

@@ -59,6 +59,17 @@ recorded atomically with that page's checkpoint, so a resume never loses one.
 - Resume dispatch splits by job `kind`: the issuer sweep is run explicitly
   (`runIssuerBackfill`); the per-holder claim loop filters to `kind='account'`,
   so it never mistakes an issuer job for a holder job.
+- **The live tail uses the same issuance-scoped filter** (`issuanceScope` →
+  `holdersInMeta`), not the older account-scoped `affectedAccounts`. Subscribing
+  to a holder delivers *all* of its activity, and the account-scoped filter
+  ingested any transaction touching a subscribed account — so a tracked holder's
+  unrelated `TrustSet`s, XRP payments, and other tokens were archived as noise.
+  All three ingest paths (backfill, gap heal, tail) now ingest a transaction only
+  if it touches a tracked issuance's `MPToken`/`RippleState` node, associating it
+  with the issuer plus the holders found. Holder subscriptions are still retained
+  for defence in depth; only the ingest filter tightened. (Balances were never
+  affected — deltas are per-issuance — but the `transactions` table and the
+  recent-transactions panel no longer collect a holder's off-scope activity.)
 
 ## Options Considered
 

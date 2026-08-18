@@ -31,6 +31,7 @@ import {
   ensureLedgerCloseTimes,
   holdersInMeta,
   ingestIssuance,
+  issuanceScope,
   issuerOf,
   lazyLedgerTimeResolver,
   loadConfig,
@@ -220,7 +221,14 @@ const led = await db.query<{ hi: number | string | null }>("SELECT max(ledger_in
 const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
 const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
 const highWater = Math.max(covHi, ledHi) || undefined;
-tailSource = new XrplTailSource({ endpoint: config.clio.endpoint, accounts: subs, reader: client });
+tailSource = new XrplTailSource({
+  endpoint: config.clio.endpoint,
+  accounts: subs,
+  reader: client,
+  // Ingest only transactions that touch a tracked issuance (holders/issuer),
+  // not a subscribed holder's unrelated activity (TrustSets, XRP, other tokens).
+  scopeOf: issuanceScope(() => tracked),
+});
 const tail = new LiveTail({
   db,
   source: tailSource,
