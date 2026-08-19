@@ -4,9 +4,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
+import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
 import { hexToBytes } from "../../src/util/hex.js";
+
+const MPT = "000000011515151515151515151515151515151515151515";
+const ISSUER = "rJ2BeYMXK5zmQSnsRGbL4iqsy9Pw8YVeow";
 
 describe("AdminApi", () => {
   let db: Database;
@@ -21,7 +25,11 @@ describe("AdminApi", () => {
   });
 
   it("registers MPT and IOU issuances and lists them", async () => {
-    const mpt = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_A", backfillFromLedger: 100 });
+    const mpt = await api.registerIssuance({
+      kind: "mpt",
+      mptIssuanceId: "MPT_A",
+      backfillFromLedger: 100,
+    });
     const iou = await api.registerIssuance({ kind: "iou", currency: "USD", issuer: "rISS" });
     expect(mpt.kind).toBe("mpt");
     expect(mpt.backfillFromLedger).toBe(100);
@@ -38,11 +46,19 @@ describe("AdminApi", () => {
     });
     expect(hex.currency).toBe("RLUSD");
     // A readable code is stored as-is.
-    const readable = await api.registerIssuance({ kind: "iou", currency: "RLUSD", issuer: "rISS2" });
+    const readable = await api.registerIssuance({
+      kind: "iou",
+      currency: "RLUSD",
+      issuer: "rISS2",
+    });
     expect(readable.currency).toBe("RLUSD");
     // XRP and empty are rejected outright rather than silently matching nothing.
-    await expect(api.registerIssuance({ kind: "iou", currency: "XRP", issuer: "rISS3" })).rejects.toThrow(/XRP/);
-    await expect(api.registerIssuance({ kind: "iou", currency: "", issuer: "rISS4" })).rejects.toThrow(/required/);
+    await expect(
+      api.registerIssuance({ kind: "iou", currency: "XRP", issuer: "rISS3" }),
+    ).rejects.toThrow(/XRP/);
+    await expect(
+      api.registerIssuance({ kind: "iou", currency: "", issuer: "rISS4" }),
+    ).rejects.toThrow(/required/);
   });
 
   it("reports issuance status: accounts, backfill, coverage, reconciliation", async () => {
@@ -52,14 +68,45 @@ describe("AdminApi", () => {
       { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 150 },
     ]);
     const txns = new TransactionRepository(db);
-    await txns.ingest({ hash: "T1", ledgerIndex: 120, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rA"] });
-    await txns.ingest({ hash: "T2", ledgerIndex: 190, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rB"] });
+    await txns.ingest({
+      hash: "T1",
+      ledgerIndex: 120,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rA"],
+    });
+    await txns.ingest({
+      hash: "T2",
+      ledgerIndex: 190,
+      txType: "Payment",
+      txBlob: new Uint8Array([3]),
+      metaBlob: new Uint8Array([4]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rB"],
+    });
     // Per-issuance transaction stats are scoped via balance_deltas (issuance_id).
-    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('T1','rA',$1,'10'),('T2','rB',$1,'20')", [iss.id]);
-    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1,$2,$3,$4)", ["rA", 100, 200, "t"]);
-    await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'completed',5)", ["rA", iss.id]);
-    await db.query("INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'running',2)", ["rB", iss.id]);
-    await db.query("INSERT INTO reconciliation_run (issuance_id, passed, discrepancies) VALUES ($1, true, 0)", [iss.id]);
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('T1','rA',$1,'10'),('T2','rB',$1,'20')",
+      [iss.id],
+    );
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1,$2,$3,$4)",
+      ["rA", 100, 200, "t"],
+    );
+    await db.query(
+      "INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'completed',5)",
+      ["rA", iss.id],
+    );
+    await db.query(
+      "INSERT INTO backfill_job (address, issuance_id, status, tx_count) VALUES ($1,$2,'running',2)",
+      ["rB", iss.id],
+    );
+    await db.query(
+      "INSERT INTO reconciliation_run (issuance_id, passed, discrepancies) VALUES ($1, true, 0)",
+      [iss.id],
+    );
 
     const status = (await api.getIssuance(iss.id))!;
     expect(status.accounts).toBe(2);
@@ -77,14 +124,40 @@ describe("AdminApi", () => {
     const b = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_B" });
     const accounts = new AccountRepository(db);
     // One holder, in scope for both issuances (as when two MPTs share an issuer).
-    await accounts.recordDiscovered(a.id, [{ address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 }]);
-    await accounts.recordDiscovered(b.id, [{ address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 }]);
+    await accounts.recordDiscovered(a.id, [
+      { address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await accounts.recordDiscovered(b.id, [
+      { address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
     const txns = new TransactionRepository(db);
-    await txns.ingest({ hash: "TA", ledgerIndex: 100, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: ["rShared"] });
-    await txns.ingest({ hash: "TB", ledgerIndex: 200, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: prov, accounts: ["rShared"] });
+    await txns.ingest({
+      hash: "TA",
+      ledgerIndex: 100,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: prov,
+      accounts: ["rShared"],
+    });
+    await txns.ingest({
+      hash: "TB",
+      ledgerIndex: 200,
+      txType: "Payment",
+      txBlob: new Uint8Array([3]),
+      metaBlob: new Uint8Array([4]),
+      provenance: prov,
+      accounts: ["rShared"],
+    });
     // TA affected only A's balance; TB only B's — the per-issuance signal.
-    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TA','rShared',$1,'10')", [a.id]);
-    await db.query("INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TB','rShared',$1,'20')", [b.id]);
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TA','rShared',$1,'10')",
+      [a.id],
+    );
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('TB','rShared',$1,'20')",
+      [b.id],
+    );
 
     const sa = (await api.getIssuance(a.id))!;
     const sb = (await api.getIssuance(b.id))!;
@@ -101,7 +174,9 @@ describe("AdminApi", () => {
       { address: "rA", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
       { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 150 },
     ]);
-    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,200,'t'),('rB',150,180,'t')");
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,200,'t'),('rB',150,180,'t')",
+    );
     // Conservative window is max(from)=150 … min(to)=180, not the 100–200 envelope.
     expect((await api.getIssuance(iss.id))!.coverage).toEqual({ min: 150, max: 180 });
 
@@ -111,7 +186,9 @@ describe("AdminApi", () => {
       { address: "rC", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
       { address: "rD", discoveredVia: "authorization", firstAcquisitionLedger: 300 },
     ]);
-    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rC',100,120,'t'),('rD',300,400,'t')");
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rC',100,120,'t'),('rD',300,400,'t')",
+    );
     expect((await api.getIssuance(iss2.id))!.coverage).toBeNull();
   });
 
@@ -122,7 +199,9 @@ describe("AdminApi", () => {
       { address: "rB", discoveredVia: "authorization", firstAcquisitionLedger: 100 },
     ]);
     // Backfill left each account complete only up to its last transaction.
-    await db.query("INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,150,'t'),('rB',100,180,'t')");
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rA',100,150,'t'),('rB',100,180,'t')",
+    );
     // Before the tail runs: ceiling is the backfill snapshot min(to)=150.
     expect((await api.getIssuance(iss.id))!.coverage).toEqual({ min: 100, max: 150 });
 
@@ -140,7 +219,10 @@ describe("AdminApi", () => {
 
     const iss = await api.registerIssuance({ kind: "mpt", mptIssuanceId: "MPT_P" });
     await db.query("INSERT INTO accounts (address) VALUES ('rA'),('rB'),('rC')");
-    await db.query("INSERT INTO backfill_job (address, issuance_id, status) VALUES ($1,$2,'completed'),($3,$2,'running'),($4,$2,'pending')", ["rA", iss.id, "rB", "rC"]);
+    await db.query(
+      "INSERT INTO backfill_job (address, issuance_id, status) VALUES ($1,$2,'completed'),($3,$2,'running'),($4,$2,'pending')",
+      ["rA", iss.id, "rB", "rC"],
+    );
     // One issuance with in-flight (pending/running) jobs → 1 of 3 done.
     expect(await api.backfillProgress()).toEqual({ done: 1, total: 3 });
 
@@ -161,13 +243,34 @@ describe("AdminApi", () => {
   it("returns the most recent transactions with close time (UTC) and result, newest first", async () => {
     const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
     const meta = (result: string): Uint8Array =>
-      hexToBytes(encode({ TransactionResult: result, TransactionIndex: 0, AffectedNodes: [] } as unknown as Parameters<typeof encode>[0]));
+      hexToBytes(
+        encode({
+          TransactionResult: result,
+          TransactionIndex: 0,
+          AffectedNodes: [],
+        } as unknown as Parameters<typeof encode>[0]),
+      );
     const txns = new TransactionRepository(db);
-    for (const [hash, ledger, type, res] of [["A", 100, "Payment", "tesSUCCESS"], ["B", 300, "MPTokenAuthorize", "tecNO_PERMISSION"], ["C", 200, "Payment", "tesSUCCESS"]] as const) {
-      await txns.ingest({ hash, ledgerIndex: ledger, txType: type, txBlob: new Uint8Array([1]), metaBlob: meta(res), provenance: prov, accounts: [] });
+    for (const [hash, ledger, type, res] of [
+      ["A", 100, "Payment", "tesSUCCESS"],
+      ["B", 300, "MPTokenAuthorize", "tecNO_PERMISSION"],
+      ["C", 200, "Payment", "tesSUCCESS"],
+    ] as const) {
+      await txns.ingest({
+        hash,
+        ledgerIndex: ledger,
+        txType: type,
+        txBlob: new Uint8Array([1]),
+        metaBlob: meta(res),
+        provenance: prov,
+        accounts: [],
+      });
     }
     // The tail records ledger close times; here we seed ledger 300's.
-    await new LedgerTimeRepository(db).record({ ledgerIndex: 300, closeTimeIso: "2026-08-17T01:15:30Z" });
+    await new LedgerTimeRepository(db).record({
+      ledgerIndex: 300,
+      closeTimeIso: "2026-08-17T01:15:30Z",
+    });
 
     const recent = await api.recentTransactions(2);
     expect(recent.map((r) => r.hash)).toEqual(["B", "C"]); // newest ledger first, limited
@@ -177,20 +280,86 @@ describe("AdminApi", () => {
       txType: "MPTokenAuthorize",
       closeTimeUtc: "2026-08-17 01:15:30",
       result: "tecNO_PERMISSION",
+      identifiers: [], // no issuance registered / no deltas → unattributed
     });
     // C's ledger has no recorded close time yet → null date; result still decoded.
     expect(recent[1]).toMatchObject({ hash: "C", closeTimeUtc: null, result: "tesSUCCESS" });
   });
 
+  it("labels a recent transaction with the issuance(s) it relates to", async () => {
+    const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
+    const empty = (): Uint8Array =>
+      hexToBytes(
+        encode({
+          TransactionResult: "tesSUCCESS",
+          TransactionIndex: 0,
+          AffectedNodes: [],
+        } as unknown as Parameters<typeof encode>[0]),
+      );
+    const issuances = new IssuanceRepository(db);
+    const mpt = await issuances.create({ kind: "mpt", mptIssuanceId: MPT });
+    const iou = await issuances.create({ kind: "iou", currency: "USD", issuerAccount: ISSUER });
+
+    const txns = new TransactionRepository(db);
+    // MPT tx: carries mpt_issuance_id on the row (resolves even before deltas).
+    await txns.ingest({
+      hash: "MPTX",
+      ledgerIndex: 400,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: empty(),
+      provenance: prov,
+      accounts: [],
+      mptIssuanceId: MPT,
+    });
+    // IOU tx: attributed via a balance_delta row (the kind-agnostic link).
+    await new AccountRepository(db).recordDiscovered(iou.id, [
+      { address: ISSUER, discoveredVia: "issuer_sweep", firstAcquisitionLedger: 401 },
+    ]);
+    await txns.ingest({
+      hash: "IOUX",
+      ledgerIndex: 401,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: empty(),
+      provenance: prov,
+      accounts: [ISSUER],
+    });
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ($1, $2, $3, $4)",
+      ["IOUX", ISSUER, iou.id, "10"],
+    );
+
+    const recent = await api.recentTransactions(2);
+    const byHash = new Map(recent.map((r) => [r.hash, r.identifiers]));
+    expect(byHash.get("IOUX")).toEqual([{ label: "USD", title: ISSUER }]);
+    // No ticker set → the MPT label falls back to a shortened id (12 head + 4 tail).
+    const shortMpt = `${MPT.slice(0, 12)}…${MPT.slice(-4)}`;
+    expect(byHash.get("MPTX")).toEqual([{ label: shortMpt, title: MPT }]);
+    expect(mpt.ticker).toBeNull();
+  });
+
   it("lazily fills close times for backfilled ledgers via the injected filler", async () => {
     const prov = { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" };
-    await new TransactionRepository(db).ingest({ hash: "X", ledgerIndex: 900, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: prov, accounts: [] });
+    await new TransactionRepository(db).ingest({
+      hash: "X",
+      ledgerIndex: 900,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: prov,
+      accounts: [],
+    });
     const filled: number[] = [];
     // A filler that records ledger 900's close time on demand (as the real one
     // would, via a `ledger` call to Clio).
     const withFiller = new AdminApi(db, undefined, async (ledgers) => {
       filled.push(...ledgers);
-      if (ledgers.includes(900)) await new LedgerTimeRepository(db).record({ ledgerIndex: 900, closeTimeIso: "2026-08-17T02:00:00Z" });
+      if (ledgers.includes(900))
+        await new LedgerTimeRepository(db).record({
+          ledgerIndex: 900,
+          closeTimeIso: "2026-08-17T02:00:00Z",
+        });
     });
 
     const recent = await withFiller.recentTransactions(1);

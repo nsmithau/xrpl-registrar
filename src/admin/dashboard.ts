@@ -187,7 +187,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div id="recent-summary" hidden></div>
   <div id="recent" class="card" hidden>
     <table>
-      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Transaction</th><th>Type</th><th>Result</th></tr></thead>
+      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Transaction</th><th>Type</th><th>Identifier</th><th>Result</th></tr></thead>
       <tbody id="recentRows"></tbody>
     </table>
   </div>
@@ -329,6 +329,19 @@ export const DASHBOARD_HTML = `<!doctype html>
       ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
       tr.appendChild(ht);
       cell(tr, x.txType);
+      // Identifier: which tracked issuance(s) this transaction relates to. The
+      // label is the MPT ticker/short id or IOU currency; the full id/issuer is
+      // the hover tooltip. Comma-separated when a tx touches more than one.
+      var idt = document.createElement("td"); idt.className = "mono";
+      if (x.identifiers && x.identifiers.length) {
+        x.identifiers.forEach(function (id, i) {
+          if (i) idt.appendChild(document.createTextNode(", "));
+          var s = document.createElement("span"); s.textContent = id.label;
+          if (id.title) s.title = id.title;
+          idt.appendChild(s);
+        });
+      } else { idt.textContent = "\\u2014"; idt.className = "mono muted"; }
+      tr.appendChild(idt);
       cell(tr, x.result || "\\u2014", x.result === "tesSUCCESS" ? "ok" : (x.result ? "bad" : "muted"));
       tb.appendChild(tr);
     });

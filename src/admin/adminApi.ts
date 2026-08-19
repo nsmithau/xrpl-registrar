@@ -31,6 +31,11 @@ export interface RecentTransaction {
   readonly closeTimeUtc: string | null;
   /** `TransactionResult` from the metadata (e.g. `tesSUCCESS`), or null. */
   readonly result: string | null;
+  /** Which tracked issuance(s) this transaction relates to — a display label
+   * (MPT ticker or short id; IOU currency) plus the full id/issuer for a
+   * tooltip. Usually one; a holder-to-holder or shared-issuer tx can touch
+   * several. Empty when no in-scope issuance is associated. */
+  readonly identifiers: readonly { readonly label: string; readonly title: string }[];
 }
 
 export interface BackfillSummary {
@@ -61,6 +66,12 @@ export interface IssuanceStatus {
     readonly discrepancies: number;
     readonly ranAt: string;
   } | null;
+}
+
+/** Ellipsise a long identifier for display (12 head + 4 tail), matching the
+ * dashboard's own `short()`. Used to label an MPT issuance that has no ticker. */
+function shortId(s: string): string {
+  return s.length > 18 ? `${s.slice(0, 12)}…${s.slice(-4)}` : s;
 }
 
 /**
@@ -140,10 +151,46 @@ export class AdminApi {
       ledger_index: number | string;
       tx_type: string;
       meta_blob: Uint8Array;
+      mpt_issuance_id: string | null;
     }>(
-      "SELECT hash, ledger_index, tx_type, meta_blob FROM transactions ORDER BY ledger_index DESC, hash LIMIT $1",
+      "SELECT hash, ledger_index, tx_type, meta_blob, mpt_issuance_id FROM transactions ORDER BY ledger_index DESC, hash LIMIT $1",
       [limit],
     );
+
+    // Associate each transaction with the tracked issuance(s) it relates to.
+    // balance_deltas is the kind-agnostic link (a row per affected holder per
+    // issuance, derived for MPT and IOU alike); union it with the transaction's
+    // own mpt_issuance_id so an MPT tx still resolves before its deltas land.
+    const hashes = rows.map((r) => r.hash);
+    const idsByHash = new Map<string, Set<number>>();
+    if (hashes.length > 0) {
+      const placeholders = hashes.map((_, i) => `$${i + 1}`).join(",");
+      const { rows: dr } = await this.#db.query<{ hash: string; issuance_id: number | string }>(
+        `SELECT DISTINCT hash, issuance_id FROM balance_deltas WHERE hash IN (${placeholders})`,
+        hashes,
+      );
+      for (const d of dr) {
+        const set = idsByHash.get(d.hash) ?? new Set<number>();
+        set.add(Number(d.issuance_id));
+        idsByHash.set(d.hash, set);
+      }
+    }
+    // Label map for every issuance (a small set): MPT -> ticker or short id;
+    // IOU -> currency. Also index by mpt_issuance_id for the column fallback.
+    const labelById = new Map<number, { label: string; title: string }>();
+    const idByMpt = new Map<string, number>();
+    for (const iss of await new IssuanceRepository(this.#db).list()) {
+      const id = iss.id;
+      if (iss.kind === "mpt" && iss.mptIssuanceId) {
+        labelById.set(id, {
+          label: iss.ticker ?? shortId(iss.mptIssuanceId),
+          title: iss.mptIssuanceId,
+        });
+        idByMpt.set(iss.mptIssuanceId, id);
+      } else if (iss.kind === "iou" && iss.currency && iss.issuerAccount) {
+        labelById.set(id, { label: iss.currency, title: iss.issuerAccount });
+      }
+    }
 
     // The tail records close times going forward; backfilled ledgers have none.
     // Fill this small set on demand (cached) so their dates aren't blank.
@@ -153,7 +200,10 @@ export class AdminApi {
     const closeTimes = new Map<number, string>();
     if (ledgers.length > 0) {
       const placeholders = ledgers.map((_, i) => `$${i + 1}`).join(",");
-      const { rows: tr } = await this.#db.query<{ ledger_index: number | string; utc: string | null }>(
+      const { rows: tr } = await this.#db.query<{
+        ledger_index: number | string;
+        utc: string | null;
+      }>(
         `SELECT ledger_index, to_char(close_time_iso AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS utc
          FROM ledgers WHERE ledger_index IN (${placeholders})`,
         ledgers,
@@ -163,14 +213,27 @@ export class AdminApi {
 
     return rows.map((r) => {
       const meta = decodeMeta(r.meta_blob);
-      const result = meta && typeof meta["TransactionResult"] === "string" ? (meta["TransactionResult"] as string) : null;
+      const result =
+        meta && typeof meta["TransactionResult"] === "string"
+          ? (meta["TransactionResult"] as string)
+          : null;
       const ledgerIndex = Number(r.ledger_index);
+      const ids = new Set<number>(idsByHash.get(r.hash) ?? []);
+      if (r.mpt_issuance_id) {
+        const id = idByMpt.get(r.mpt_issuance_id);
+        if (id !== undefined) ids.add(id);
+      }
+      const identifiers = [...ids]
+        .map((id) => labelById.get(id))
+        .filter((v): v is { label: string; title: string } => v !== undefined)
+        .sort((a, b) => a.label.localeCompare(b.label));
       return {
         hash: r.hash,
         ledgerIndex,
         txType: r.tx_type,
         closeTimeUtc: closeTimes.get(ledgerIndex) ?? null,
         result,
+        identifiers,
       };
     });
   }
@@ -223,8 +286,13 @@ export class AdminApi {
        WHERE bd.issuance_id = $1`,
       [id],
     );
-    const toNum = (v: number | string | null | undefined) => (v === null || v === undefined ? null : Number(v));
-    return { count: Number(rows[0]?.c ?? 0), earliestLedger: toNum(rows[0]?.lo), latestLedger: toNum(rows[0]?.hi) };
+    const toNum = (v: number | string | null | undefined) =>
+      v === null || v === undefined ? null : Number(v);
+    return {
+      count: Number(rows[0]?.c ?? 0),
+      earliestLedger: toNum(rows[0]?.lo),
+      latestLedger: toNum(rows[0]?.hi),
+    };
   }
 
   async setEnabled(id: number, enabled: boolean): Promise<boolean> {
@@ -234,7 +302,11 @@ export class AdminApi {
   }
 
   async #backfillSummary(id: number): Promise<BackfillSummary> {
-    const { rows } = await this.#db.query<{ status: string; n: number | string; tx: number | string }>(
+    const { rows } = await this.#db.query<{
+      status: string;
+      n: number | string;
+      tx: number | string;
+    }>(
       `SELECT status, count(*) AS n, sum(tx_count) AS tx
        FROM backfill_job WHERE issuance_id = $1 GROUP BY status`,
       [id],
@@ -279,7 +351,8 @@ export class AdminApi {
     );
     const lo = rows[0]?.lo;
     const backfillHi = rows[0]?.backfill_hi;
-    if (lo === null || lo === undefined || backfillHi === null || backfillHi === undefined) return null;
+    if (lo === null || lo === undefined || backfillHi === null || backfillHi === undefined)
+      return null;
     const min = Number(lo);
     // Advance the ceiling to the tail's high-water when the tail has run.
     const tailHi = rows[0]?.tail_hi;
