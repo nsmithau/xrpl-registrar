@@ -339,6 +339,9 @@ async function runConcurrency(
       const o = await t.send(method, cursor);
       outcomes.push(o);
       cursor = o.nextCursor; // undefined ⇒ non-paginated, or end of history: restart from the top
+      // If a request fails instantly (broken socket → synchronous throw), don't
+      // busy-loop hammering local failures — pause so the step stays meaningful.
+      if (!o.ok && o.latencyMs < 10) await sleep(50);
     }
   };
   await Promise.all(Array.from({ length: concurrency }, () => worker()));

@@ -24,4 +24,6 @@ Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted.
 | [ADR-012](adr-012-tail-driven-incremental-maintenance-not-periodic-full.md) | Tail-driven incremental maintenance, not periodic full re-derivation/re-scan |
 | [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md) | Issuer-centric backfill — one `account_tx` sweep per issuer, not per holder |
 | [ADR-014](adr-014-resolve-ledger-close-times-lazily-not-eagerly.md) | Resolve ledger close times lazily, not eagerly at ingest |
+| [ADR-015](adr-015-governor-settings-from-load-probing.md) | Concurrency governor settings, tuned by load-probing public Clio |
+| [ADR-016](adr-016-http-transport-for-backfill-paging.md) | Page `account_tx` over HTTP JSON-RPC for backfill; WS only for the tail *(Proposed)* |
 

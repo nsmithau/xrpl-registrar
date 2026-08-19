@@ -81,7 +81,23 @@ metric on mismatch rather than failing.
 
 ---
 
-## 3. Networked Postgres + multi-process backfill (L)
+## 3. HTTP JSON-RPC transport for backfill paging (M) — [ADR-016](adr/adr-016-http-transport-for-backfill-paging.md)
+
+**Why.** Backfill/heal page an issuer's `account_tx` (binary, `limit` 200) over the
+single xrpl.js WebSocket socket, where the large binary responses head-of-line-block:
+load-probing (ADR-015) measured ≈660 ms/page at concurrency 1 ballooning to ~5 s at
+C=4 and timeouts at C=16. Over HTTP JSON-RPC the same paging holds ≈195 ms/page flat
+and parallelises — roughly a 5–25× backfill speedup at scale. The transport, not the
+governor, is the lever.
+
+**What.** Add an HTTP-backed `ClioTransport` and route the paged `account_tx` call
+sites (issuer sweep + gap heal) through it; keep WebSocket for the `subscribe` tail
+and node-state/forwarded calls. Both share the global governor. Add HTTP `503`/`429`
+(+ `Retry-After`) to `classifyError` (WS-only today), and consider a per-transport
+concurrency cap (HTTP parallelises, so it can run higher than WS). No data-shape
+change — identical binary blobs are stored regardless of transport.
+
+## 4. Networked Postgres + multi-process backfill (L)
 
 **Why.** [ADR-010](adr/adr-010-store-the-filtered-archive-in-postgres-not.md) keeps
 storage behind a driver-agnostic interface with PGlite (in-process, single-threaded)
@@ -96,7 +112,7 @@ for CPU/throughput at scale, of which the ingest-side optimisations already land
 
 ---
 
-## 4. Durable ingest trigger (M)
+## 5. Durable ingest trigger (M)
 
 **Why.** Registering an issuance triggers ingestion in an in-process background task; a
 crash mid-ingest loses the trigger (the backfill job itself is resumable, but the
@@ -108,7 +124,7 @@ ingest survives a restart without relying on the startup resume sweep.
 
 ---
 
-## 5. Periodic external reconciliation against upstream (M)
+## 6. Periodic external reconciliation against upstream (M)
 
 **Why.** The internal reconciler checks derived balances against state reconstructed
 from our own metadata. That catches derivation bugs, not *archive incompleteness* — a
@@ -120,7 +136,7 @@ Overlaps with item 2; could share machinery.
 
 ---
 
-## 6. Deployment / ops hardening (M)
+## 7. Deployment / ops hardening (M)
 
 **Why.** The service binds to localhost and the admin surface must never be publicly
 exposed, but there is no packaged deployment story.
