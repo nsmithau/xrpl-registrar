@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import type { IssuanceRecord } from "../db/repositories/issuances.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 
-import type { AdminApi, RegisterIssuance } from "./adminApi.js";
+import { AdminInputError, type AdminApi, type RegisterIssuance } from "./adminApi.js";
 import { DASHBOARD_HTML } from "./dashboard.js";
 
 export interface AdminServerOptions {
@@ -209,12 +209,21 @@ export class AdminServer {
           return send(res, 400, { error: "invalidParams", message: "'enabled' boolean required" });
         }
         const ok = await this.#api.setEnabled(id, body.enabled);
-        return ok ? send(res, 200, { id, enabled: body.enabled }) : send(res, 404, { error: "notFound" });
+        return ok
+          ? send(res, 200, { id, enabled: body.enabled })
+          : send(res, 404, { error: "notFound" });
       }
       return send(res, 405, { error: "methodNotAllowed" });
     } catch (err) {
+      // Surface the message only for tagged caller-input errors (e.g. a malformed
+      // currency); for anything else return a generic message so internal error
+      // text (DB, filesystem, stack) is not disclosed to the caller.
       this.#logger.error("admin request failed", { error: String(err) });
-      send(res, 400, { error: "badRequest", message: String(err instanceof Error ? err.message : err) });
+      if (err instanceof AdminInputError) {
+        send(res, 400, { error: "invalidParams", message: err.message });
+      } else {
+        send(res, 400, { error: "badRequest" });
+      }
     }
   }
 }
@@ -224,10 +233,24 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// Cap the buffered body. /admin/login runs before auth, so an unbounded POST
+// here would be an unauthenticated memory-exhaustion vector even on the
+// loopback-bound admin port. 1 MiB dwarfs any real admin request.
+const MAX_BODY_BYTES = 1_000_000;
+
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("request body too large"));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => {
       const text = Buffer.concat(chunks).toString("utf8");
       try {

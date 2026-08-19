@@ -101,11 +101,26 @@ export async function handleAccountTx(
   const page = hasMore ? rows.slice(0, limit) : rows;
   const transactions = page.map((r) => (binary ? binaryEntry(r) : jsonEntry(r)));
 
+  // Report a real ledger range, never a -1 echo (see design principles). With
+  // coverage, the guaranteed-complete window; without a coverage row yet, the
+  // actual span of data held for the account (with the below warning), falling
+  // back to the archive's latest ledger when the account has no transactions.
+  let idxMin: number;
+  let idxMax: number;
+  if (coverage) {
+    idxMin = coverage.fromLedger;
+    idxMax = coverage.toLedger;
+  } else {
+    const range = await scope.accountDataRange(account);
+    idxMin = range ? range.lo : await scope.latestLedger();
+    idxMax = range ? range.hi : idxMin;
+  }
+
   const result: Record<string, unknown> = {
     status: "success",
     account,
-    ledger_index_min: coverage ? coverage.fromLedger : -1,
-    ledger_index_max: coverage ? coverage.toLedger : -1,
+    ledger_index_min: idxMin,
+    ledger_index_max: idxMax,
     limit,
     transactions,
     validated: true,
@@ -113,12 +128,17 @@ export async function handleAccountTx(
   };
 
   const extraWarnings = [];
-  const belowCoverage = reqMin !== undefined && reqMin >= 0 && coverage && reqMin < coverage.fromLedger;
-  const aboveCoverage = reqMax !== undefined && reqMax >= 0 && coverage && reqMax > coverage.toLedger;
+  const belowCoverage =
+    reqMin !== undefined && reqMin >= 0 && coverage && reqMin < coverage.fromLedger;
+  const aboveCoverage =
+    reqMax !== undefined && reqMax >= 0 && coverage && reqMax > coverage.toLedger;
   if (belowCoverage || aboveCoverage || !coverage) {
     extraWarnings.push(
       rangeBeyondCoverageWarning(
-        { ...(reqMin !== undefined ? { min: reqMin } : {}), ...(reqMax !== undefined ? { max: reqMax } : {}) },
+        {
+          ...(reqMin !== undefined ? { min: reqMin } : {}),
+          ...(reqMax !== undefined ? { max: reqMax } : {}),
+        },
         coverage,
       ),
     );

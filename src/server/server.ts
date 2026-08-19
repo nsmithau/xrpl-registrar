@@ -164,10 +164,24 @@ export class ArchiveServer {
   }
 }
 
+// Cap the buffered request body so an unbounded/huge POST cannot exhaust memory
+// (this endpoint is public/unauthenticated). 1 MiB is far above any real JSON-RPC
+// request. A reverse proxy should also cap it, but do not rely on that.
+const MAX_BODY_BYTES = 1_000_000;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("request body too large"));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });

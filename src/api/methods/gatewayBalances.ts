@@ -174,7 +174,12 @@ async function latestLedger(db: Database): Promise<number> {
  * *every* in-scope account is guaranteed complete — `max(from_ledger)` (no
  * account starts later) to the tail's high-water once it has run, else the
  * backfill snapshot `min(to_ledger)`. Null when no coverage is recorded or the
- * ranges do not overlap. Mirrors the admin API's coverage semantics.
+ * ranges do not overlap.
+ *
+ * Fail-closed: this LEFT JOINs from `account_issuance`, so any in-scope holder
+ * with no coverage row yet (discovered but not backfilled) counts as uncovered
+ * and forces null — an inner join would silently drop it and let the window
+ * (and thus the obligations total) look complete when it is not.
  */
 async function conservativeCoverage(
   db: Database,
@@ -183,19 +188,29 @@ async function conservativeCoverage(
   const { rows } = await db.query<{
     lo: number | string | null;
     backfill_hi: number | string | null;
+    uncovered: number | string | null;
     tail_hi: number | string | null;
   }>(
     `SELECT max(c.from_ledger) AS lo,
             min(c.to_ledger) AS backfill_hi,
+            count(*) FILTER (WHERE c.address IS NULL) AS uncovered,
             (SELECT max(ledger_index) FROM ledgers) AS tail_hi
-     FROM coverage c
-     JOIN account_issuance ai ON ai.address = c.address
+     FROM account_issuance ai
+     LEFT JOIN coverage c ON c.address = ai.address
      WHERE ai.issuance_id = $1`,
     [issuanceId],
   );
   const lo = rows[0]?.lo;
   const backfillHi = rows[0]?.backfill_hi;
-  if (lo === null || lo === undefined || backfillHi === null || backfillHi === undefined)
+  const uncovered = Number(rows[0]?.uncovered ?? 0);
+  // Any holder without a coverage row (or none at all) → not guaranteed complete.
+  if (
+    uncovered > 0 ||
+    lo === null ||
+    lo === undefined ||
+    backfillHi === null ||
+    backfillHi === undefined
+  )
     return null;
   const min = Number(lo);
   const tailHi = rows[0]?.tail_hi;

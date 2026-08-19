@@ -204,6 +204,45 @@ describe("gateway_balances (IOU issuer)", () => {
     expect(res.result.obligations).toEqual({ "4655534400000000000000000000000000000000": "3000" });
   });
 
+  it("fails closed when any in-scope holder has no coverage row yet", async () => {
+    // A fresh issuer with two discovered holders; only one has been backfilled
+    // (has a coverage row). The uncovered holder must force outOfCoverage rather
+    // than being silently dropped from the coverage window.
+    const aud = await new IssuanceRepository(db).create({
+      kind: "iou",
+      currency: "AUD",
+      issuerAccount: "rISSUER3",
+    });
+    await new AccountRepository(db).recordDiscovered(aud.id, [
+      { address: "rCov", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+      { address: "rUncov", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await new TransactionRepository(db).ingest({
+      hash: "A1",
+      ledgerIndex: 100,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: PROV,
+      accounts: ["rCov"],
+    });
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('A1','rCov',$1,'5')",
+      [aud.id],
+    );
+    // Only rCov is covered; rUncov (discovered, not yet backfilled) has no row.
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rCov',100,200,'t')",
+    );
+
+    const res = await api.handle({
+      command: "gateway_balances",
+      account: "rISSUER3",
+      api_version: 2,
+    });
+    expect(res.result.error).toBe("outOfCoverage");
+  });
+
   it("validates params", async () => {
     expect((await api.handle({ command: "gateway_balances", api_version: 2 })).result.error).toBe(
       "invalidParams",

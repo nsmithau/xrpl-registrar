@@ -68,6 +68,16 @@ export interface IssuanceStatus {
   } | null;
 }
 
+/** Invalid caller input (e.g. a malformed currency). Distinct from an internal
+ * failure so the transport can surface its message safely while keeping internal
+ * error detail generic. */
+export class AdminInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminInputError";
+  }
+}
+
 /** Ellipsise a long identifier for display (12 head + 4 tail), matching the
  * dashboard's own `short()`. Used to label an MPT issuance that has no ticker. */
 function shortId(s: string): string {
@@ -111,11 +121,19 @@ export class AdminApi {
           : {}),
       });
     }
-    return this.#issuances.create({
-      kind: "iou",
+    let currency: string;
+    try {
       // Accept the readable code or the 40-hex on-wire form; store the readable
       // code the archive matches against, and reject a malformed one outright.
-      currency: normalizeCurrency(input.currency),
+      currency = normalizeCurrency(input.currency);
+    } catch (err) {
+      // Tag as caller input so the transport can safely surface the message
+      // (e.g. "XRP is not an issuable IOU currency") without leaking internals.
+      throw new AdminInputError(err instanceof Error ? err.message : String(err));
+    }
+    return this.#issuances.create({
+      kind: "iou",
+      currency,
       issuerAccount: input.issuer,
       ...(input.backfillFromLedger !== undefined
         ? { backfillFromLedger: input.backfillFromLedger }

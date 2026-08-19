@@ -41,8 +41,10 @@ export interface AppConfig {
 
 function intFromEnv(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
+  // Validate the whole string: Number.parseInt("10abc")→10 and ("3.9")→3 would
+  // silently accept a malformed setting, contrary to the fail-closed stance.
+  const parsed = Number(value.trim());
+  if (!Number.isInteger(parsed)) {
     throw new Error(`Expected an integer, got: ${value}`);
   }
   return parsed;
