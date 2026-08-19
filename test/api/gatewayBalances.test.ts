@@ -168,6 +168,42 @@ describe("gateway_balances (IOU issuer)", () => {
     expect(before.result.error).toBe("outOfCoverage");
   });
 
+  it("keys obligations by the on-wire currency (non-standard code → 40-hex), like Clio", async () => {
+    // A separate issuer so this does not perturb the multi-currency assertions.
+    const fusd = await new IssuanceRepository(db).create({
+      kind: "iou",
+      currency: "FUSD",
+      issuerAccount: "rISSUER2",
+    });
+    await new AccountRepository(db).recordDiscovered(fusd.id, [
+      { address: "rH9", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await new TransactionRepository(db).ingest({
+      hash: "F1",
+      ledgerIndex: 100,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: PROV,
+      accounts: ["rH9"],
+    });
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('F1','rH9',$1,'3000')",
+      [fusd.id],
+    );
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rH9',100,200,'t')",
+    );
+
+    const res = await api.handle({
+      command: "gateway_balances",
+      account: "rISSUER2",
+      api_version: 2,
+    });
+    // Matches a real Clio response: FUSD → 4655534400…00.
+    expect(res.result.obligations).toEqual({ "4655534400000000000000000000000000000000": "3000" });
+  });
+
   it("validates params", async () => {
     expect((await api.handle({ command: "gateway_balances", api_version: 2 })).result.error).toBe(
       "invalidParams",

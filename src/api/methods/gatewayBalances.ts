@@ -5,6 +5,7 @@ import { errorResult, invalidParams, notInArchive } from "../errors.js";
 import type { ScopeRepository } from "../scope.js";
 import type { ApiRequest, MethodResult } from "../types.js";
 import { gatewayAssetsNotTrackedWarning } from "../warnings.js";
+import { currencyToWire } from "../../xrpl/currency.js";
 
 // Never emit exponential notation, so decimal strings stay numeric-safe.
 Big.NE = -1_000_000;
@@ -100,6 +101,10 @@ export async function handleGatewayBalances(
       [iss.id, ledger],
     );
 
+    // Clio keys obligations/balances by the on-wire currency: a 3-char standard
+    // code as-is, a non-standard code as its 40-hex form. Match it so a drop-in
+    // client keys identically against us and a real Clio.
+    const wireCurrency = currencyToWire(iss.currency);
     let obligation = new Big(0);
     for (const r of rows) {
       // The issuer never holds its own IOU via a trustline to itself; skip it
@@ -108,14 +113,14 @@ export async function handleGatewayBalances(
       const bal = new Big(r.bal ?? "0");
       if (bal.eq(0)) continue;
       if (hotwallets.hotwallets.has(r.address)) {
-        (balances[r.address] ??= []).push({ currency: iss.currency, value: bal.toString() });
+        (balances[r.address] ??= []).push({ currency: wireCurrency, value: bal.toString() });
       } else {
         obligation = obligation.plus(bal);
       }
     }
     // Clio omits a currency with nothing outstanding; a zero here is a true
     // "nothing owed", not a scope miss (the issuer/coverage checks passed).
-    if (!obligation.eq(0)) obligations[iss.currency] = obligation.toString();
+    if (!obligation.eq(0)) obligations[wireCurrency] = obligation.toString();
   }
 
   return {

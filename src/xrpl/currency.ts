@@ -1,3 +1,5 @@
+import { convertStringToHex } from "xrpl";
+
 import { hexToBytes } from "../util/hex.js";
 
 /**
@@ -23,6 +25,19 @@ export function currencyToString(code: string): string {
 }
 
 /**
+ * The on-wire currency representation, as Clio/`xrpld` return it: a 3-character
+ * standard code as-is (`USD`), and any longer (non-standard) readable code as
+ * its 40-hex (20-byte) ASCII form, right-padded with zeros (`FUSD` →
+ * `4655534400…00`). The inverse of {@link currencyToString} for the readable
+ * codes this archive stores — used where a response must match Clio's shape
+ * exactly (e.g. `gateway_balances` obligations keys).
+ */
+export function currencyToWire(code: string): string {
+  if (code.length === 3) return code;
+  return convertStringToHex(code).toUpperCase().padEnd(40, "0");
+}
+
+/**
  * Normalise an operator-supplied IOU currency for storage.
  *
  * Accepts either the readable code (`RLUSD`, `USD`) or the 40-hex on-wire form
@@ -37,6 +52,7 @@ export function normalizeCurrency(input: string): string {
   if (code === "XRP") throw new Error("XRP is not an issuable IOU currency");
   // Readable non-standard codes decode to at most 20 characters; anything
   // longer is not a currency code (e.g. a mistyped issuance id).
-  if (code.length > 20) throw new Error(`currency '${code}' is not a valid currency code (max 20 characters)`);
+  if (code.length > 20)
+    throw new Error(`currency '${code}' is not a valid currency code (max 20 characters)`);
   return code;
 }

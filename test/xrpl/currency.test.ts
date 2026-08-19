@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { currencyToString, normalizeCurrency } from "../../src/xrpl/currency.js";
+import { currencyToString, currencyToWire, normalizeCurrency } from "../../src/xrpl/currency.js";
 
 // "RLUSD" as the 40-hex on-wire form (ASCII + trailing NUL padding).
 const RLUSD_HEX = "524C555344000000000000000000000000000000";
@@ -16,6 +16,21 @@ describe("currencyToString", () => {
 
   it("leaves an already-readable non-standard code unchanged", () => {
     expect(currencyToString("RLUSD")).toBe("RLUSD");
+  });
+});
+
+describe("currencyToWire", () => {
+  it("passes standard 3-char codes through unchanged", () => {
+    expect(currencyToWire("USD")).toBe("USD");
+  });
+
+  it("encodes a non-standard code as its 40-hex on-wire form", () => {
+    expect(currencyToWire("RLUSD")).toBe(RLUSD_HEX);
+    expect(currencyToWire("FUSD")).toBe("4655534400000000000000000000000000000000");
+  });
+
+  it("round-trips with currencyToString", () => {
+    expect(currencyToString(currencyToWire("RLUSD"))).toBe("RLUSD");
   });
 });
 

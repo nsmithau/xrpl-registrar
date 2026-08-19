@@ -87,7 +87,13 @@ ledger returns a new `outOfCoverage` error. A zero net obligation is omitted
 (Clio parity); `assets` is omitted and every response carries the
 `gatewayAssetsNotTracked` warning (id `65004`). `ledger_index` accepts a number
 or `"validated"`/`"current"`/`"latest"`; point-in-time by date stays with
-`archive_balance_at`.
+`archive_balance_at`. Obligations/balances are keyed by the **on-wire currency**
+(a 3-char standard code as-is, a non-standard code as its 40-hex form via
+`currencyToWire`, built on xrpl.js `convertStringToHex`) so a client keys
+identically against us and a real Clio — verified against a live
+`gateway_balances` response. `ledger_hash` is not echoed (the archive stores
+ledger index + close time, not per-ledger hashes — as with the other read
+methods); `ledger_index` is the point-in-time identifier.
 
 ## Consequences
 
