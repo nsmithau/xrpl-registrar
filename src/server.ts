@@ -6,9 +6,13 @@
  * xrpl.js can connect. The guided testnet tour that ingests a sample issuance is
  * `pnpm demo`.
  *
- *   CLIO_ENDPOINT=wss://<testnet-clio> ADMIN_TOKEN=secret pnpm serve
+ *   CLIO_ENDPOINT=wss://<full-history-clio> ADMIN_TOKEN=secret pnpm serve
  *
- * Optional: PORT=<port>, DATABASE_DIR=<dir> (persist).
+ * In production this compiles to `dist/server.js` and runs on plain node
+ * (`pnpm start`), e.g. under the systemd unit in `deploy/`.
+ *
+ * Optional: PORT=<port>, HOST=<bind addr> (public API only; admin stays on
+ * loopback), DATABASE_DIR=<dir> (persist).
  */
 import {
   ActivityRegistry,
@@ -40,9 +44,14 @@ import {
   trackedIssuance,
   type DecodedMeta,
   type TrackedIssuance,
-} from "../src/index.js";
+} from "./index.js";
 
 const PORT = Number(process.env.PORT ?? 51234);
+// Bind address for the PUBLIC read API only. Defaults to loopback: the secure,
+// recommended posture is to bind localhost and front the service with a reverse
+// proxy that terminates TLS (see deploy/). Set HOST=0.0.0.0 to expose it
+// directly (only behind a firewall). The admin port always stays on loopback.
+const HOST = process.env.HOST ?? "127.0.0.1";
 // Safety-net full re-scan interval (0 disables). Streaming discovery is primary;
 // this only backstops holders missed during a tail gap. Default 1 hour.
 const REDISCOVERY_INTERVAL_MS = Number(process.env.REDISCOVERY_INTERVAL_MS ?? 60 * 60 * 1000);
@@ -159,7 +168,7 @@ const api = new ArchiveApi({
   // close times — no eager per-ledger capture at registration.
   resolveLedgerTime: lazyLedgerTimeResolver(client, db),
 });
-const server = new ArchiveServer({ api, port: PORT, host: "127.0.0.1", logger: log });
+const server = new ArchiveServer({ api, port: PORT, host: HOST, logger: log });
 const bound = await server.start();
 
 // Forward-declared: the streaming-discovery closures below reference it before
@@ -354,8 +363,8 @@ if (REDISCOVERY_INTERVAL_MS > 0) {
 }
 
 console.log(`\nArchive serving (Clio-compatible):`);
-console.log(`  WebSocket    : ws://127.0.0.1:${bound}`);
-console.log(`  HTTP JSON-RPC: http://127.0.0.1:${bound}`);
+console.log(`  WebSocket    : ws://${HOST}:${bound}`);
+console.log(`  HTTP JSON-RPC: http://${HOST}:${bound}`);
 console.log(`\nExample (HTTP JSON-RPC):`);
 console.log(
   `  curl -s http://127.0.0.1:${bound} -H 'content-type: application/json' \\\n` +
@@ -395,7 +404,14 @@ if (config.admin.token) {
 
 console.log(`\nPress Ctrl-C to stop.`);
 
-process.on("SIGINT", () => {
+// Graceful shutdown on Ctrl-C (SIGINT) and on `systemctl stop` (SIGTERM):
+// stop the tail, close upstream and the database cleanly so PGlite flushes to
+// disk before exit. Guarded so a second signal during shutdown is ignored.
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\nReceived ${signal}, shutting down…`);
   void (async () => {
     if (rediscoverTimer) clearInterval(rediscoverTimer);
     tail.stop();
@@ -406,4 +422,6 @@ process.on("SIGINT", () => {
     await db.close();
     process.exit(0);
   })();
-});
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

@@ -1,0 +1,56 @@
+[Unit]
+Description=xrpl-registrar — filtered XRPL archive with a Clio-compatible API
+Documentation=https://github.com/nsmithau/xrpl-registrar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xrpl-registrar
+Group=xrpl-registrar
+WorkingDirectory=/opt/xrpl-registrar
+Environment=NODE_ENV=production
+# All app configuration (CLIO_ENDPOINT, ADMIN_TOKEN, ports, DATABASE_DIR, …).
+EnvironmentFile=/etc/xrpl-registrar/xrpl-registrar.env
+ExecStart=/usr/bin/node /opt/xrpl-registrar/dist/server.js
+
+# The process handles SIGTERM for a clean shutdown (flushes PGlite to disk);
+# give in-flight backfill/heal a moment to stop before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+# --- Sandboxing / hardening ---
+# The archive is a network service that only needs to read its own code and
+# write its data directory. Everything else is locked down.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+# The embedded database (PGlite) is the only thing that persists to disk.
+ReadWritePaths=/var/lib/xrpl-registrar
+# @system-service is the recommended baseline for a long-running daemon. Node's
+# V8 JIT needs writable+executable memory, so MemoryDenyWriteExecute is left
+# OFF deliberately — enabling it will crash the runtime. If the service fails to
+# start with a seccomp error, comment the next two lines out and file an issue.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

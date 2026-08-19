@@ -84,12 +84,12 @@ The account set is **append-only**: accounts that ever held the token are never 
 
 `api_version: 2` is required (requests that omit it are rejected). Methods fall into four classes:
 
-| Class | Methods | Behaviour |
-|-------|---------|-----------|
-| Archive-scoped reads | `account_tx`, `tx`, `account_info`, `account_lines`, `mpt_holders` | Served from the archive, scope-checked. Out-of-scope → `notInArchive`; honest coverage ranges. |
-| Reporting extensions | `archive_balance_at`, `archive_transactions` | Namespaced (not Clio-shaped). Point-in-time balances and the itemised per-transaction balance changes — by account, ledger range, **or** date range, exact for MPT and IOU. |
-| Node state | `server_info`, `fee`, `ledger` | Forwarded to a configured upstream. |
-| Submission | `submit`, `submit_multisigned` | Forwarded. |
+| Class                | Methods                                                            | Behaviour                                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Archive-scoped reads | `account_tx`, `tx`, `account_info`, `account_lines`, `mpt_holders` | Served from the archive, scope-checked. Out-of-scope → `notInArchive`; honest coverage ranges.                                                                              |
+| Reporting extensions | `archive_balance_at`, `archive_transactions`                       | Namespaced (not Clio-shaped). Point-in-time balances and the itemised per-transaction balance changes — by account, ledger range, **or** date range, exact for MPT and IOU. |
+| Node state           | `server_info`, `fee`, `ledger`                                     | Forwarded to a configured upstream.                                                                                                                                         |
+| Submission           | `submit`, `submit_multisigned`                                     | Forwarded.                                                                                                                                                                  |
 
 Every archive response carries Clio's `2001` warning plus a filtered-archive warning (id `65001`) flagging that absence may mean out-of-scope rather than non-existent. The warning is a compact marker — the full tracked scope is returned only where it is actionable, in the `notInArchive` error for an out-of-scope request.
 
@@ -122,20 +122,38 @@ A [Postman collection](postman/) covering the Admin API and the `archive_*` repo
 
 All configuration is read from the environment. Copy [`.env.example`](.env.example) to `.env` and adjust. The `pnpm demo` and `pnpm serve` scripts auto-load `.env` (via Node's `--env-file-if-exists`); an inline variable still overrides the file.
 
-| Variable | Required | Default | Notes |
-|----------|----------|---------|-------|
-| `CLIO_ENDPOINT` | **yes** | — | WebSocket URL of a **full-history** Clio server. No default: a missing or wrong source is an error, never a silent fallback. |
-| `CLIO_MAX_RETRIES` | no | `5` | Retries per request on upstream load signals. |
-| `CLIO_CONNECTION_TIMEOUT_MS` | no | `20000` | WebSocket connection timeout. |
-| `DATABASE_DIR` | no | *(in-memory)* | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this. |
-| `ADMIN_TOKEN` | no | — | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly. |
-| `ADMIN_PORT` | no | `51235` | Port for the authenticated admin API. |
-| `PORT` | no | `51234` | Port for the public read API (used by `pnpm serve`). |
-| `REDISCOVERY_INTERVAL_MS` | no | `3600000` | Safety-net full re-scan interval (1 h). New holders are discovered live from the tail (via the issuer subscription), so this only backstops a holder missed during a tail gap. `0` disables. |
-| `GOVERNOR_MAX_CONCURRENT` | no | `4` | Global cap on in-flight upstream requests, shared across all issuances. |
-| `GOVERNOR_MIN_BACKOFF_MS` | no | `1000` | First backoff step when upstream sheds load. |
-| `GOVERNOR_MAX_BACKOFF_MS` | no | `60000` | Backoff ceiling. |
-| `GOVERNOR_BACKOFF_FACTOR` | no | `2` | Exponential growth between consecutive load signals. |
+| Variable                     | Required | Default       | Notes                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | -------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLIO_ENDPOINT`              | **yes**  | —             | WebSocket URL of a **full-history** Clio server. No default: a missing or wrong source is an error, never a silent fallback.                                                                                                                                                                          |
+| `CLIO_HTTP_ENDPOINT`         | no       | _(WebSocket)_ | Optional Clio HTTP JSON-RPC endpoint. When set, the heavy paged `account_tx` backfill/heal uses it — a connection pool parallelises far better than the single WebSocket socket ([ADR-016](docs/adr/adr-016-http-transport-for-backfill-paging.md)). The tail and forwarding stay on `CLIO_ENDPOINT`. |
+| `CLIO_MAX_RETRIES`           | no       | `5`           | Retries per request on upstream load signals.                                                                                                                                                                                                                                                         |
+| `CLIO_CONNECTION_TIMEOUT_MS` | no       | `20000`       | WebSocket connection timeout.                                                                                                                                                                                                                                                                         |
+| `CLIO_REQUEST_TIMEOUT_MS`    | no       | `30000`       | Per-request timeout. Generous by design: a heavy `account_tx` page can take several seconds.                                                                                                                                                                                                          |
+| `DATABASE_DIR`               | no       | _(in-memory)_ | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this.                                                                                                                                             |
+| `ADMIN_TOKEN`                | no       | —             | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly.                                                                                                                                                                               |
+| `ADMIN_PORT`                 | no       | `51235`       | Port for the authenticated admin API (always bound to loopback).                                                                                                                                                                                                                                      |
+| `EXPLORER_BASE_URL`          | no       | —             | Block-explorer base URL. When set, the dashboard links transaction hashes, ledgers, MPT ids, and IOU tokens to it (e.g. `https://livenet.xrpl.org`).                                                                                                                                                  |
+| `PORT`                       | no       | `51234`       | Port for the public read API.                                                                                                                                                                                                                                                                         |
+| `HOST`                       | no       | `127.0.0.1`   | Bind address for the public read API. Loopback by default — front it with a TLS reverse proxy (see [Deploying](#deploying-on-ubuntu)). Set `0.0.0.0` to expose it directly, only behind a firewall.                                                                                                   |
+| `REDISCOVERY_INTERVAL_MS`    | no       | `3600000`     | Safety-net full re-scan interval (1 h). New holders are discovered live from the tail (via the issuer subscription), so this only backstops a holder missed during a tail gap. `0` disables.                                                                                                          |
+| `GOVERNOR_MAX_CONCURRENT`    | no       | `4`           | Global cap on in-flight upstream requests, shared across all issuances.                                                                                                                                                                                                                               |
+| `GOVERNOR_MIN_BACKOFF_MS`    | no       | `1000`        | First backoff step when upstream sheds load.                                                                                                                                                                                                                                                          |
+| `GOVERNOR_MAX_BACKOFF_MS`    | no       | `60000`       | Backoff ceiling.                                                                                                                                                                                                                                                                                      |
+| `GOVERNOR_BACKOFF_FACTOR`    | no       | `2`           | Exponential growth between consecutive load signals.                                                                                                                                                                                                                                                  |
+
+## Deploying on Ubuntu
+
+For a persistent, self-hosted install, run the archive as a systemd service. The compiled entrypoint (`pnpm build` → `dist/server.js`, started with `pnpm start`) runs on plain `node` — no `tsx` or transpile step in the runtime path.
+
+```bash
+git clone https://github.com/nsmithau/xrpl-registrar.git
+cd xrpl-registrar
+sudo ./deploy/install.sh          # copies to /opt, builds, installs the unit
+sudo nano /etc/xrpl-registrar/xrpl-registrar.env   # set CLIO_ENDPOINT + ADMIN_TOKEN
+sudo systemctl start xrpl-registrar
+```
+
+The installer is idempotent (re-run it to upgrade), builds under a dedicated `xrpl-registrar` system user, stores data in `/var/lib/xrpl-registrar`, and installs a hardened systemd unit. The read API stays on loopback by default; front it with the supplied nginx + TLS example, and reach the admin dashboard over an SSH tunnel. Full walkthrough — prerequisites, TLS, firewall, backups, upgrades, uninstall — in **[`deploy/README.md`](deploy/README.md)**.
 
 ## Development
 
@@ -149,7 +167,7 @@ pnpm build             # emit to dist/
 
 ## Roadmap
 
-Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a *newly*-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Not yet built: multi-*process* backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and deployment/ops hardening (host binding, a metrics endpoint, container image, runbook). The server binds to localhost and the admin surface must not be publicly exposed.
+Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. A native Ubuntu deployment path ships in [`deploy/`](deploy/) — a compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an nginx + TLS example, and a runbook. Not yet built: multi-_process_ backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and the remaining ops surface (a metrics endpoint, a container image). The public read API binds to localhost by default and the admin surface must never be publicly exposed.
 
 ## Licence
 

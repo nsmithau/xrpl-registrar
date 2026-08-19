@@ -1,0 +1,63 @@
+# nginx reverse proxy for the xrpl-registrar PUBLIC read API.
+#
+# The service binds the read API to 127.0.0.1:51234 (see HOST/PORT in the env
+# file). This front-ends it with TLS so xrpl.js / JSON-RPC clients connect over
+# wss:// and https://. It deliberately does NOT proxy the admin port (51235):
+# the admin API and dashboard must stay on loopback and be reached via an SSH
+# tunnel (ADR-009).
+#
+# Install:
+#   sudo cp deploy/nginx/xrpl-registrar.conf.example \
+#           /etc/nginx/sites-available/xrpl-registrar.conf
+#   # edit server_name + the certificate paths
+#   sudo ln -s /etc/nginx/sites-available/xrpl-registrar.conf \
+#              /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# TLS: obtain a certificate with certbot (`sudo certbot --nginx -d archive.example.com`)
+# or drop in your own. certbot can also manage the 80->443 redirect for you.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name archive.example.com;   # <-- change me
+
+    # Redirect everything to HTTPS.
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name archive.example.com;   # <-- change me
+
+    ssl_certificate     /etc/letsencrypt/live/archive.example.com/fullchain.pem;  # <-- change me
+    ssl_certificate_key /etc/letsencrypt/live/archive.example.com/privkey.pem;    # <-- change me
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # Both the HTTP JSON-RPC endpoint and the WebSocket endpoint are the same
+    # origin; the Upgrade header selects the protocol.
+    location / {
+        proxy_pass http://127.0.0.1:51234;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Long-lived WebSocket subscriptions: don't cut idle streams early.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
