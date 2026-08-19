@@ -1,6 +1,6 @@
 # ADR-017: Serve `gateway_balances` for IOU issuers — scoped and fail-closed
 
-**Status:** Proposed. Decider: Neil Smith.
+**Status:** Accepted — implemented. Decider: Neil Smith.
 
 ## Context
 
@@ -76,6 +76,18 @@ forward it upstream.
 
 Method class is **archive read** (scope-checked), alongside `mpt_holders`. It is
 IOU-only: an MPT issuer's aggregate is already `mpt_holders`.
+
+**As implemented:** [`methods/gatewayBalances.ts`](../../src/api/methods/gatewayBalances.ts),
+dispatched from the archive-scoped path in `handler.ts`. Per-holder balances are
+the exact `sum(balance_deltas.delta)` up to the ledger (the same primitive as
+`archive_balance_at`, cheaper than reconstructing `RippleState`); obligations are
+their per-currency sum, hot wallets removed. Coverage uses the admin API's
+conservative window (max backfill start … tail high-water); an out-of-range
+ledger returns a new `outOfCoverage` error. A zero net obligation is omitted
+(Clio parity); `assets` is omitted and every response carries the
+`gatewayAssetsNotTracked` warning (id `65004`). `ledger_index` accepts a number
+or `"validated"`/`"current"`/`"latest"`; point-in-time by date stays with
+`archive_balance_at`.
 
 ## Consequences
 

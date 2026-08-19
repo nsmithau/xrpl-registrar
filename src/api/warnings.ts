@@ -50,6 +50,25 @@ export function rangeBeyondCoverageWarning(
   };
 }
 
+/** Provisional warning id for "gateway_balances here reports obligations only,
+ * not the issuer's own holdings (`assets`)". */
+export const GATEWAY_ASSETS_NOT_TRACKED_WARNING_ID = 65004;
+
+/**
+ * Attached to every `gateway_balances` response. The archive tracks the issuer
+ * as an issuer, not as a holder of third-party tokens, so it cannot compute the
+ * `assets` field (ADR-017). Rather than return `assets: {}` — which would read
+ * as "holds none" — the field is omitted and this warning makes the limitation
+ * explicit.
+ */
+export function gatewayAssetsNotTrackedWarning(): ClioWarning {
+  return {
+    id: GATEWAY_ASSETS_NOT_TRACKED_WARNING_ID,
+    message:
+      "gateway_balances from this filtered archive reports the issuer's obligations (and any hot-wallet balances) only. It does NOT report 'assets' — tokens the issuer holds that were issued by others — which are out of scope; query an upstream node for those.",
+  };
+}
+
 export function forwardedNotArchiveWarning(): ClioWarning {
   return {
     id: FORWARDED_NOT_ARCHIVE_WARNING_ID,

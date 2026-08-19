@@ -5,6 +5,7 @@ import { errorResult, invalidApiVersion, unsupported } from "./errors.js";
 import { DisabledForwarder, type Forwarder } from "./forwarder.js";
 import { handleAccountInfo, handleAccountLines } from "./methods/accountState.js";
 import { handleAccountTx } from "./methods/accountTx.js";
+import { handleGatewayBalances } from "./methods/gatewayBalances.js";
 import { handleMptHolders } from "./methods/mptHolders.js";
 import { tableLedgerTimeResolver, type LedgerTimeResolver } from "./ledgerTime.js";
 import { handleBalanceAt, handleTransactions } from "./methods/reporting.js";
@@ -16,7 +17,14 @@ import { forwardedNotArchiveWarning, localWarnings } from "./warnings.js";
 // Method classes (docs: decide a method's class before implementing it).
 const NODE_STATE = new Set(["server_info", "ledger", "fee"]);
 const SUBMISSION = new Set(["submit", "submit_multisigned"]);
-const ARCHIVE_SCOPED = new Set(["account_tx", "tx", "account_info", "account_lines", "mpt_holders"]);
+const ARCHIVE_SCOPED = new Set([
+  "account_tx",
+  "tx",
+  "account_info",
+  "account_lines",
+  "mpt_holders",
+  "gateway_balances",
+]);
 const ACCOUNT_SCOPED = new Set(["account_tx", "account_info", "account_lines"]);
 // Reporting extensions — archive-only computations, never forwarded.
 const REPORTING = new Set(["archive_balance_at", "archive_transactions"]);
@@ -26,6 +34,7 @@ const IMPLEMENTED_ARCHIVE = new Set([
   "account_info",
   "account_lines",
   "mpt_holders",
+  "gateway_balances",
 ]);
 
 export interface ArchiveApiOptions {
@@ -117,6 +126,8 @@ export class ArchiveApi {
         return handleAccountLines(this.#db, this.#scope, req);
       case "mpt_holders":
         return handleMptHolders(this.#db, this.#scope, req);
+      case "gateway_balances":
+        return handleGatewayBalances(this.#db, this.#scope, req);
       default:
         return { result: unsupported(cmd) };
     }
