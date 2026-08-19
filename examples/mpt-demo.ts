@@ -27,7 +27,7 @@ import { TransactionRepository } from "../src/db/repositories/transactions.js";
 import { createClioClient, loadConfig } from "../src/index.js";
 import { nullLogger } from "../src/logging/logger.js";
 
-const DEFAULT_MPT_ID = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
+const DEFAULT_MPT_ID = "000000011515151515151515151515151515151515151515";
 const PAGE_LIMIT = 20;
 
 interface AccountTxResult {
@@ -83,7 +83,9 @@ async function main(): Promise<void> {
     );
 
     for (const address of scope) {
-      await db.query("INSERT INTO accounts (address) VALUES ($1) ON CONFLICT DO NOTHING", [address]);
+      await db.query("INSERT INTO accounts (address) VALUES ($1) ON CONFLICT DO NOTHING", [
+        address,
+      ]);
       await db.query(
         `INSERT INTO account_issuance (address, issuance_id, discovered_via)
          VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
@@ -124,7 +126,12 @@ async function main(): Promise<void> {
         await db.query(
           `INSERT INTO coverage (address, from_ledger, to_ledger, reason)
            VALUES ($1, $2, $3, $4)`,
-          [account, res.result.ledger_index_min, res.result.ledger_index_max, "account_tx exhausted"],
+          [
+            account,
+            res.result.ledger_index_min,
+            res.result.ledger_index_max,
+            "account_tx exhausted",
+          ],
         );
       }
       console.log(
@@ -144,7 +151,9 @@ async function main(): Promise<void> {
     const byType = await db.query<{ tx_type: string; n: number | string }>(
       "SELECT tx_type, count(*)::bigint AS n FROM transactions GROUP BY tx_type ORDER BY n DESC, tx_type",
     );
-    console.log(`by type                : ${byType.rows.map((r) => `${r.tx_type}=${r.n}`).join(", ")}`);
+    console.log(
+      `by type                : ${byType.rows.map((r) => `${r.tx_type}=${r.n}`).join(", ")}`,
+    );
 
     const coverage = await db.query<{ address: string; from_ledger: string; to_ledger: string }>(
       "SELECT address, from_ledger, to_ledger FROM coverage ORDER BY address",

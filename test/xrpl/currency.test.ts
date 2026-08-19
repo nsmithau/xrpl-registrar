@@ -43,7 +43,7 @@ describe("normalizeCurrency", () => {
   });
 
   it("rejects an over-long value (e.g. a mistyped issuance id)", () => {
-    expect(() => normalizeCurrency("0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1")).toThrow(
+    expect(() => normalizeCurrency("000000011515151515151515151515151515151515151515")).toThrow(
       /valid currency code/,
     );
   });

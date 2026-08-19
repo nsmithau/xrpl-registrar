@@ -53,7 +53,10 @@ const TARGETS: Record<string, Target> = {
 // ones). `account_tx` binary limit=200 is the backfill workhorse — the knee that
 // actually matters. `ledger_expand` is an account-agnostic heavy fallback (use it
 // for mainnet unless you set PROBE_ACCOUNT to an active mainnet account).
-const PROBE_ACCOUNT = process.env.PROBE_ACCOUNT ?? "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV"; // testnet default
+// The default is a placeholder that does NOT exist on-ledger: set PROBE_ACCOUNT
+// to a real, active account (one with lots of history) before probing account_tx,
+// or the heavy phase just measures actNotFound round-trips.
+const PROBE_ACCOUNT = process.env.PROBE_ACCOUNT ?? "rprPCQEwbJWbGNFCUCMPitVRA2ffajvoW8"; // synthetic placeholder
 interface Method {
   readonly command: string;
   readonly params: Record<string, unknown>;

@@ -10,7 +10,7 @@ import { fakeReader } from "../discovery/fakes.js";
 
 // A valid-format MPTokenIssuanceID (48 hex): ingestIssuance decodes the issuer
 // address from it, so the shape must be real even though the network is faked.
-const MPT = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
+const MPT = "000000011515151515151515151515151515151515151515";
 
 describe("ingestIssuance", () => {
   let db: Database;
@@ -46,7 +46,9 @@ describe("ingestIssuance", () => {
   });
 
   it("captures the MPT ticker from on-ledger metadata at ingest", async () => {
-    const metaHex = Buffer.from(JSON.stringify({ t: "FGOLD", n: "Fake Gold" }), "utf8").toString("hex");
+    const metaHex = Buffer.from(JSON.stringify({ t: "FGOLD", n: "Fake Gold" }), "utf8").toString(
+      "hex",
+    );
     const client = fakeReader((req: ClioRequest) => {
       if (req.command === "ledger_entry") return { node: { MPTokenMetadata: metaHex } };
       if (req.command === "account_tx") return { transactions: [] };

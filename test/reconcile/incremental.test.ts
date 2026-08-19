@@ -4,14 +4,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
-import { deriveTxDeltas, holdersInMetaBlob, trackedIssuance } from "../../src/reconcile/incremental.js";
+import {
+  deriveTxDeltas,
+  holdersInMetaBlob,
+  trackedIssuance,
+} from "../../src/reconcile/incremental.js";
 import type { TrackedIssuance } from "../../src/reconcile/incremental.js";
 import { hexToBytes } from "../../src/util/hex.js";
 
-const MPT = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
-const HOLDER = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
+const MPT = "000000011515151515151515151515151515151515151515";
+const HOLDER = "rLsf6CoQBcqncszYcxZMzWFDtwng28o5g3";
 const RLUSD_HEX = "524C555344000000000000000000000000000000";
-const ISSUER = "rvuwyijyoSSRvvhkbbhDcZ3AjRcvd7LAP";
+const ISSUER = "rJ2BeYMXK5zmQSnsRGbL4iqsy9Pw8YVeow";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
 function encodeMeta(meta: object): Uint8Array {
@@ -50,7 +54,12 @@ function mptMetaBlob(finalAmt: number, prevAmt: number): Uint8Array {
         ModifiedNode: {
           LedgerEntryType: "MPToken",
           LedgerIndex: "0".repeat(64),
-          FinalFields: { Account: HOLDER, MPTokenIssuanceID: MPT, MPTAmount: String(finalAmt), Flags: 0 },
+          FinalFields: {
+            Account: HOLDER,
+            MPTokenIssuanceID: MPT,
+            MPTAmount: String(finalAmt),
+            Flags: 0,
+          },
           PreviousFields: { MPTAmount: String(prevAmt) },
         },
       },
@@ -115,7 +124,9 @@ describe("holdersInMetaBlob (streaming discovery)", () => {
   const iou: TrackedIssuance = { id: 2, kind: "iou", currency: "RLUSD", issuer: ISSUER };
 
   it("extracts an MPT holder from a transaction's meta", () => {
-    expect(holdersInMetaBlob(mptMetaBlob(100, 40), [mpt])).toEqual([{ issuanceId: 1, holder: HOLDER }]);
+    expect(holdersInMetaBlob(mptMetaBlob(100, 40), [mpt])).toEqual([
+      { issuanceId: 1, holder: HOLDER },
+    ]);
   });
 
   it("extracts an IOU holder (the non-issuer side of the trustline)", () => {

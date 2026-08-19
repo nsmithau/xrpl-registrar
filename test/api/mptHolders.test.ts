@@ -9,15 +9,27 @@ import { TransactionRepository } from "../../src/db/repositories/transactions.js
 import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
 import { hexToBytes } from "../../src/util/hex.js";
 
-const MPT = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
+const MPT = "000000011515151515151515151515151515151515151515";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
-// Real testnet accounts + MPToken object ids (from the compared Clio response),
-// so the metadata encodes with the XRPL binary codec.
+// Synthetic accounts + MPToken object ids (structurally valid, so the metadata
+// encodes with the XRPL binary codec) — mirrors a real mpt_holders response.
 const HOLDERS = [
-  { addr: "rBCfmsSaKWGM8thurjgk6Fv5a7sPpT2WCi", amount: "60000000", oid: "56127F074B6147A8ED721FD98C9D6D87B43B4F8E4AE0E884614673075FD8297D" },
-  { addr: "rhM45XLrFiyWnSUobeuBXWQw5LE31a1oMJ", amount: "20000000", oid: "635A1658137F2453B9441A0D2BB1C7DDD94318F0037C4D2B7B8450A4964880A6" },
-  { addr: "rBjaegbntZkj8MjZ7QA57CdzpepxkNrm7N", amount: "80000000", oid: "89236372ABF4BA475D9C0755DFD54647C28E24E13C55914DA3EBB77BFB734CC4" },
+  {
+    addr: "rEjdRNJWChUHPCirDV8QVuMC3ouRVd5Lxq",
+    amount: "60000000",
+    oid: "A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1",
+  },
+  {
+    addr: "rHH1MJb32htjymP7c81ZTuq8sWXDeMN5Ak",
+    amount: "20000000",
+    oid: "B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2",
+  },
+  {
+    addr: "rJifH41kVnbUZivxpnx5RvKtxD9riEGA5G",
+    amount: "80000000",
+    oid: "C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3",
+  },
 ];
 
 function metaFor(account: string, amount: string, objectId: string): Uint8Array {
@@ -63,7 +75,10 @@ describe("mpt_holders (Clio-compatible shape)", () => {
       });
       ledger += 1;
     }
-    await new LedgerTimeRepository(db).record({ ledgerIndex: 500, closeTimeIso: "2026-08-17T00:00:00Z" });
+    await new LedgerTimeRepository(db).record({
+      ledgerIndex: 500,
+      closeTimeIso: "2026-08-17T00:00:00Z",
+    });
   });
 
   afterEach(async () => {
@@ -80,10 +95,15 @@ describe("mpt_holders (Clio-compatible shape)", () => {
   });
 
   it("paginates with limit + marker, ordered by mptoken_index", async () => {
-    const first = await api.handle({ command: "mpt_holders", mpt_issuance_id: MPT, limit: 2, api_version: 2 });
+    const first = await api.handle({
+      command: "mpt_holders",
+      mpt_issuance_id: MPT,
+      limit: 2,
+      api_version: 2,
+    });
     const page1 = first.result.mptokens as Array<{ account: string; mptoken_index: string }>;
     expect(page1.length).toBe(2);
-    // Ordered by mptoken_index ascending (5612…, 635A…, 8923…) → rBCf, rhM45.
+    // Ordered by mptoken_index ascending (A1A1…, B2B2…, C3C3…) → rEjd, rHH1.
     expect(page1.map((h) => h.account)).toEqual([HOLDERS[0]!.addr, HOLDERS[1]!.addr]);
     expect(first.result.marker).toBe(page1[1]!.mptoken_index);
 
@@ -100,7 +120,12 @@ describe("mpt_holders (Clio-compatible shape)", () => {
   });
 
   it("echoes the requested ledger_index as the as-of ledger", async () => {
-    const res = await api.handle({ command: "mpt_holders", mpt_issuance_id: MPT, ledger_index: 100, api_version: 2 });
+    const res = await api.handle({
+      command: "mpt_holders",
+      mpt_issuance_id: MPT,
+      ledger_index: 100,
+      api_version: 2,
+    });
     expect(res.result.ledger_index).toBe(100);
     // Only the first holder's MPToken existed at ledger 100.
     expect((res.result.mptokens as unknown[]).length).toBe(1);

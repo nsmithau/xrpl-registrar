@@ -9,7 +9,7 @@ import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { trackedIssuance } from "../../src/reconcile/index.js";
 import { fakeReader } from "../discovery/fakes.js";
 
-const MPT = "0128C74F0A3198D6E71DE4A6F39C3AD08BD1215358949AE1";
+const MPT = "000000011515151515151515151515151515151515151515";
 const ISSUER = "rIssuer";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
@@ -32,10 +32,22 @@ const mapEntry = (entry: BinaryTxEntry, issuer: string): MappedEntry | null =>
         meta: null,
       };
 
-async function setup(db: Database, fromLedger = 0): Promise<{ tracked: ReturnType<typeof trackedIssuance>; job: BackfillJob }> {
+async function setup(
+  db: Database,
+  fromLedger = 0,
+): Promise<{ tracked: ReturnType<typeof trackedIssuance>; job: BackfillJob }> {
   const iss = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
-  await db.query("INSERT INTO accounts (address, first_seen_ledger) VALUES ($1, NULL) ON CONFLICT DO NOTHING", [ISSUER]);
-  const job = await new BackfillJobRepository(db).enqueue(iss.id, ISSUER, fromLedger, null, "issuer");
+  await db.query(
+    "INSERT INTO accounts (address, first_seen_ledger) VALUES ($1, NULL) ON CONFLICT DO NOTHING",
+    [ISSUER],
+  );
+  const job = await new BackfillJobRepository(db).enqueue(
+    iss.id,
+    ISSUER,
+    fromLedger,
+    null,
+    "issuer",
+  );
   return { tracked: trackedIssuance(iss), job };
 }
 
@@ -107,7 +119,10 @@ describe("runIssuerBackfill", () => {
       markersSeen.push(req.marker);
       calls += 1;
       return calls === 1
-        ? { transactions: [{ tx_blob: "H1", meta_blob: "rA", ledger_index: 100 }], marker: { ledger: 100, seq: 0 } }
+        ? {
+            transactions: [{ tx_blob: "H1", meta_blob: "rA", ledger_index: 100 }],
+            marker: { ledger: 100, seq: 0 },
+          }
         : { transactions: [{ tx_blob: "H2", meta_blob: "rB", ledger_index: 200 }] };
     });
 
