@@ -215,6 +215,22 @@ export const DASHBOARD_HTML = `<!doctype html>
   function exUrl(kind, value) { // kind: transactions | ledgers | mpt | accounts
     return explorerBase && value != null && value !== "" ? explorerBase + "/" + kind + "/" + value : null;
   }
+  // Explorer token id for an IOU: 3-char standard codes ride as-is; longer
+  // (non-standard) codes must be the 40-hex ASCII on-wire form, trailing-zero
+  // padded (e.g. FUSD -> 4655534400...00), matching what the explorer expects.
+  function iouTokenId(currency, issuer) {
+    var code = currency;
+    if (currency.length !== 3) {
+      var hex = "";
+      for (var k = 0; k < currency.length; k++) {
+        var h = currency.charCodeAt(k).toString(16);
+        hex += h.length < 2 ? "0" + h : h;
+      }
+      while (hex.length < 40) hex += "0";
+      code = hex.toUpperCase();
+    }
+    return code + "." + issuer;
+  }
   function exLink(text, href, title) {
     var a = document.createElement("a");
     a.textContent = String(text); a.href = href; a.target = "_blank"; a.rel = "noopener";
@@ -269,9 +285,10 @@ export const DASHBOARD_HTML = `<!doctype html>
       var mptHref = exUrl("mpt", i.mptIssuanceId);
       if (i.ticker) identifierCell(tr, i.ticker, i.mptIssuanceId, i.mptIssuanceId, mptHref);
       else identifierCell(tr, short(i.mptIssuanceId), i.mptIssuanceId, i.mptIssuanceId, mptHref);
-      // IOU: show only the currency code; the issuer is the hover tooltip, the
-      // copy value, and the explorer link.
-    } else identifierCell(tr, i.currency, i.issuerAccount, i.issuerAccount, exUrl("accounts", i.issuerAccount));
+      // IOU: show only the currency code; the issuer is the hover tooltip and
+      // the copy value, and the explorer link points at the token (currency +
+      // issuer), not the bare issuer account.
+    } else identifierCell(tr, i.currency, i.issuerAccount, i.issuerAccount, exUrl("token", iouTokenId(i.currency, i.issuerAccount)));
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
     cell(tr, s.transactions);
