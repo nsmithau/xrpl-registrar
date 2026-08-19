@@ -25,6 +25,25 @@ function asObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** Recursively order object keys alphabetically (arrays keep their order). */
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value !== null && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) out[key] = sortKeys(source[key]);
+    return out;
+  }
+  return value;
+}
+
+/** Serialize a response with keys sorted alphabetically at every level, so the
+ * output matches Clio's ordering byte-for-byte (JSON key order is semantically
+ * irrelevant, but this makes responses diff-comparable against a real Clio). */
+function jsonSorted(value: unknown): string {
+  return JSON.stringify(sortKeys(value));
+}
+
 /**
  * Serves the archive over the two protocols existing XRPL clients already
  * speak, so they connect by changing a URL:
@@ -81,7 +100,7 @@ export class ArchiveServer {
           const { id: _ignored, ...rest } = msg;
           const res = await this.#api.handle(rest as ApiRequest);
           socket.send(
-            JSON.stringify({
+            jsonSorted({
               ...(id !== undefined ? { id } : {}),
               type: "response",
               status: statusOf(res),
@@ -93,7 +112,7 @@ export class ArchiveServer {
         } catch (err) {
           this.#logger.error("ws message failed", { error: String(err) });
           socket.send(
-            JSON.stringify({
+            jsonSorted({
               ...(id !== undefined ? { id } : {}),
               type: "response",
               status: "error",
@@ -109,7 +128,7 @@ export class ArchiveServer {
   async #handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== "POST") {
       res.writeHead(405, { "content-type": "application/json" });
-      res.end(JSON.stringify({ result: { status: "error", error: "methodNotAllowed" } }));
+      res.end(jsonSorted({ result: { status: "error", error: "methodNotAllowed" } }));
       return;
     }
     try {
@@ -119,20 +138,28 @@ export class ArchiveServer {
       const params = Array.isArray(parsed["params"]) ? asObject(parsed["params"][0]) : {};
       if (!method) {
         res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ result: { status: "error", error: "invalidParams", error_message: "'method' is required" } }));
+        res.end(
+          jsonSorted({
+            result: {
+              status: "error",
+              error: "invalidParams",
+              error_message: "'method' is required",
+            },
+          }),
+        );
         return;
       }
       const apiRes = await this.#api.handle({ command: method, ...params } as ApiRequest);
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
-        JSON.stringify({
+        jsonSorted({
           result: { ...apiRes.result, warnings: apiRes.warnings, forwarded: apiRes.forwarded },
         }),
       );
     } catch (err) {
       this.#logger.error("http request failed", { error: String(err) });
       res.writeHead(400, { "content-type": "application/json" });
-      res.end(JSON.stringify({ result: { status: "error", error: "badRequest" } }));
+      res.end(jsonSorted({ result: { status: "error", error: "badRequest" } }));
     }
   }
 }
