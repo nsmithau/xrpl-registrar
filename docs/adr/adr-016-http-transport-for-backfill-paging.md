@@ -1,6 +1,6 @@
 # ADR-016: Page `account_tx` over HTTP JSON-RPC for backfill; WebSocket only for the tail
 
-**Status:** Proposed (not yet implemented — tracked in `ROADMAP.md`).
+**Status:** Accepted — implemented, opt-in via `CLIO_HTTP_ENDPOINT`.
 
 ## Context
 
@@ -27,8 +27,18 @@ governor.
 
 The storage layer already keeps identical binary blobs regardless of transport,
 so there is no data-shape change — this is purely how the bytes are fetched. The
-`ClioTransport` interface already abstracts `request()`; this adds an
-HTTP-backed implementation and routes the paging call sites to it.
+`ClioTransport` interface already abstracts `request()`; the implementation adds
+an HTTP-backed transport and routes the paging call sites to it.
+
+**As implemented:** `HttpTransport` (JSON-RPC over `fetch`) sits behind the same
+`ClioClient`/governor as the WS transport. `createClioClient` returns a
+`pagingClient` — the HTTP client when `CLIO_HTTP_ENDPOINT` is set, else the WS
+client as a fallback — and `serve` routes the issuer sweep, gap heal, and
+per-holder backfill through it while the tail, forwarding, and low-volume calls
+stay on WS. Both clients share one governor, so the global concurrency cap and
+backoff hold across transports. `classifyError` now maps HTTP `429`/`5xx` to load
+signals; `Retry-After` is captured on the error but not yet honoured by the
+governor (no probed endpoint sends it — a future refinement).
 
 ## Consequences
 
@@ -44,8 +54,8 @@ HTTP-backed implementation and routes the paging call sites to it.
 
 ## Options considered
 
-| Option | Verdict |
-|--------|---------|
-| Single WS for everything *(current)* | Rejected for backfill: heavy `account_tx` serialises on one socket — throughput doesn't scale and pages time out under contention. |
-| Pool of WS connections | Possible, but heavier to manage (N sockets, reconnect/subscribe semantics) than stateless request/response. |
-| **HTTP for paging + WS for the tail** *(chosen)* | Matches each workload to its transport: stateless bulk paging over pooled HTTP, persistent stream over WS. |
+| Option                                           | Verdict                                                                                                                            |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Single WS for everything _(current)_             | Rejected for backfill: heavy `account_tx` serialises on one socket — throughput doesn't scale and pages time out under contention. |
+| Pool of WS connections                           | Possible, but heavier to manage (N sockets, reconnect/subscribe semantics) than stateless request/response.                        |
+| **HTTP for paging + WS for the tail** _(chosen)_ | Matches each workload to its transport: stateless bulk paging over pooled HTTP, persistent stream over WS.                         |

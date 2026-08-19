@@ -4,6 +4,11 @@ export interface AppConfig {
   readonly clio: {
     /** Upstream Clio WebSocket endpoint. Must be a full-history Clio server. */
     readonly endpoint: string;
+    /** Optional Clio HTTP JSON-RPC endpoint. When set, the paged backfill/heal
+     * `account_tx` workload uses it (parallelises far better than the single WS
+     * socket — ADR-016); the tail and forwarding stay on the WS endpoint. When
+     * unset, backfill paging falls back to the WS endpoint. */
+    readonly httpEndpoint: string | undefined;
     /** Max retries per request on load signals. */
     readonly maxRetries: number;
     /** WebSocket connection timeout in ms. */
@@ -60,6 +65,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     clio: {
       endpoint,
+      httpEndpoint: env.CLIO_HTTP_ENDPOINT?.trim() || undefined,
       maxRetries: intFromEnv(env.CLIO_MAX_RETRIES, 5),
       connectionTimeout: intFromEnv(env.CLIO_CONNECTION_TIMEOUT_MS, 20_000),
       requestTimeout: intFromEnv(env.CLIO_REQUEST_TIMEOUT_MS, 30_000),
@@ -73,10 +79,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       explorerBaseUrl: env.EXPLORER_BASE_URL?.trim().replace(/\/+$/, "") || undefined,
     },
     governor: {
-      maxConcurrent: intFromEnv(env.GOVERNOR_MAX_CONCURRENT, DEFAULT_GOVERNOR_OPTIONS.maxConcurrent),
+      maxConcurrent: intFromEnv(
+        env.GOVERNOR_MAX_CONCURRENT,
+        DEFAULT_GOVERNOR_OPTIONS.maxConcurrent,
+      ),
       minBackoffMs: intFromEnv(env.GOVERNOR_MIN_BACKOFF_MS, DEFAULT_GOVERNOR_OPTIONS.minBackoffMs),
       maxBackoffMs: intFromEnv(env.GOVERNOR_MAX_BACKOFF_MS, DEFAULT_GOVERNOR_OPTIONS.maxBackoffMs),
-      backoffFactor: intFromEnv(env.GOVERNOR_BACKOFF_FACTOR, DEFAULT_GOVERNOR_OPTIONS.backoffFactor),
+      backoffFactor: intFromEnv(
+        env.GOVERNOR_BACKOFF_FACTOR,
+        DEFAULT_GOVERNOR_OPTIONS.backoffFactor,
+      ),
     },
   };
 }

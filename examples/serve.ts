@@ -89,19 +89,30 @@ const config = loadConfig();
 const log = withProgressCounter(consoleLogger);
 // Tracks in-flight backfill/discovery so the dashboard can show live indicators.
 const activity = new ActivityRegistry();
-const { client } = createClioClient(config);
-const db = await openArchiveDatabase(config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {});
+// `client` is the WebSocket client (tail, forwarding, low-volume calls).
+// `pagingClient` is what the heavy paged account_tx backfill/heal uses — HTTP
+// JSON-RPC when CLIO_HTTP_ENDPOINT is set (parallelises; ADR-016), else the WS
+// client. Both share one governor.
+const { client, pagingClient } = createClioClient(config);
+const db = await openArchiveDatabase(
+  config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {},
+);
 // Startup guard: confirm the upstream is a full-history Clio. A partial-history
 // xrpld node or the wrong network would make the archive silently incomplete —
 // so surface server_info and warn loudly when it doesn't look like Clio.
 async function verifyEndpoint(): Promise<void> {
   try {
-    const res = await client.request<{ info?: Record<string, unknown> }>({ command: "server_info" });
+    const res = await client.request<{ info?: Record<string, unknown> }>({
+      command: "server_info",
+    });
     const info = res.result.info ?? {};
     const clio = typeof info["clio_version"] === "string" ? info["clio_version"] : undefined;
-    const ledgers = typeof info["complete_ledgers"] === "string" ? info["complete_ledgers"] : "unknown";
+    const ledgers =
+      typeof info["complete_ledgers"] === "string" ? info["complete_ledgers"] : "unknown";
     const network = info["network_id"] ?? "?";
-    console.log(`  ${clio ? `Clio ${clio}` : "NOT a Clio server"} · ledgers ${ledgers} · network_id ${network}`);
+    console.log(
+      `  ${clio ? `Clio ${clio}` : "NOT a Clio server"} · ledgers ${ledgers} · network_id ${network}`,
+    );
     if (!clio) {
       console.warn(
         `  ⚠  ${config.clio.endpoint} does not report as Clio (no clio_version in server_info).\n` +
@@ -116,6 +127,11 @@ async function verifyEndpoint(): Promise<void> {
 }
 
 console.log(`Connecting to Clio: ${config.clio.endpoint}`);
+console.log(
+  config.clio.httpEndpoint
+    ? `Backfill paging : HTTP JSON-RPC ${config.clio.httpEndpoint} (parallelised)`
+    : `Backfill paging : WebSocket (set CLIO_HTTP_ENDPOINT to parallelise heavy account_tx — ADR-016)`,
+);
 await client.connect();
 await verifyEndpoint();
 
@@ -187,7 +203,7 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
     { address: holder, discoveredVia: "stream", firstAcquisitionLedger: null },
   ]);
   inScope.add(`${issuanceId}|${holder}`);
-  const worker = new BackfillWorker({ client, db, deriveDeltas });
+  const worker = new BackfillWorker({ client: pagingClient, db, deriveDeltas });
   await worker.enqueue(issuanceId, [holder], 0);
   // Streaming discovery: the tail spotted a holder not yet in scope and is
   // bringing it in. Tracked as "discovery" (the bulk issuer sweep is "backfill"),
@@ -216,8 +232,12 @@ await seedInScope();
 // tracker at the backfill/observed high-water so a restart heals only the small
 // recent gap.
 const subs = await subscriptionSet();
-const cov = await db.query<{ hi: number | string | null }>("SELECT max(to_ledger) AS hi FROM coverage");
-const led = await db.query<{ hi: number | string | null }>("SELECT max(ledger_index) AS hi FROM ledgers");
+const cov = await db.query<{ hi: number | string | null }>(
+  "SELECT max(to_ledger) AS hi FROM coverage",
+);
+const led = await db.query<{ hi: number | string | null }>(
+  "SELECT max(ledger_index) AS hi FROM ledgers",
+);
 const covHi = cov.rows[0]?.hi != null ? Number(cov.rows[0]!.hi) : 0;
 const ledHi = led.rows[0]?.hi != null ? Number(led.rows[0]!.hi) : 0;
 const highWater = Math.max(covHi, ledHi) || undefined;
@@ -243,7 +263,7 @@ const tail = new LiveTail({
     // against the issuer), instead of a request per gap ledger or per holder.
     const issuers = issuerAddresses(tracked);
     await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
-      backfillGap(client, db, issuers, range, tracked, {
+      backfillGap(pagingClient, db, issuers, range, tracked, {
         logger: log,
         deriveDeltas,
         // Discover holders that first appeared during the gap, same as the tail.
@@ -253,7 +273,9 @@ const tail = new LiveTail({
   },
 });
 void tail.run();
-console.log(`Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`);
+console.log(
+  `Live tail    : ${subs.length} account(s) (holders + issuers), healing from ledger ${highWater ?? "(none)"}`,
+);
 
 // Resume any interrupted backfill on startup: a prior run may have left pending
 // (never reached), running (crashed), or failed (transient upstream) jobs.
@@ -263,7 +285,10 @@ async function resumeBackfills(): Promise<void> {
   const jobs = new BackfillJobRepository(db);
   for (const issuance of await new IssuanceRepository(db).list()) {
     if (!issuance.enabled) continue;
-    const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
+    const label =
+      issuance.kind === "mpt"
+        ? issuance.mptIssuanceId
+        : `${issuance.currency}/${issuance.issuerAccount}`;
 
     // The issuer sweep (kind='issuer'): resume it if a prior run left it
     // pending/running/failed. reclaimStale returns running/failed to pending.
@@ -274,7 +299,7 @@ async function resumeBackfills(): Promise<void> {
       const fresh = (await jobs.getByAccount(issuance.id, issuer))!;
       log.info("resuming issuer backfill", { issuanceId: issuance.id, status: issuerJob.status });
       await activity.track("backfill", `resuming ${label ?? issuance.id}`, () =>
-        runIssuerBackfill(client, db, trackedIssuance(issuance), fresh, {
+        runIssuerBackfill(pagingClient, db, trackedIssuance(issuance), fresh, {
           logger: log,
           deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
         }),
@@ -287,13 +312,20 @@ async function resumeBackfills(): Promise<void> {
       [issuance.id],
     );
     if (Number(rows[0]?.n ?? 0) > 0) {
-      log.info("resuming holder backfills", { issuanceId: issuance.id, outstanding: Number(rows[0]!.n) });
-      const worker = new BackfillWorker({ client, db, logger: log, deriveDeltas });
-      await activity.track("backfill", `resuming holders ${label ?? issuance.id}`, () => worker.runIssuance(issuance.id));
+      log.info("resuming holder backfills", {
+        issuanceId: issuance.id,
+        outstanding: Number(rows[0]!.n),
+      });
+      const worker = new BackfillWorker({ client: pagingClient, db, logger: log, deriveDeltas });
+      await activity.track("backfill", `resuming holders ${label ?? issuance.id}`, () =>
+        worker.runIssuance(issuance.id),
+      );
     }
   }
 }
-void resumeBackfills().catch((err: unknown) => log.error("resume backfill failed", { error: String(err) }));
+void resumeBackfills().catch((err: unknown) =>
+  log.error("resume backfill failed", { error: String(err) }),
+);
 
 // Periodic re-discovery is now a *safety net*: the live tail discovers new
 // holders from the stream (via the issuer subscription) as they appear, so this
@@ -304,7 +336,7 @@ async function rediscover(): Promise<void> {
   const issuances = await new IssuanceRepository(db).list();
   for (const issuance of issuances) {
     if (!issuance.enabled) continue;
-    await ingestIssuance(client, db, issuance, log, activity);
+    await ingestIssuance(pagingClient, db, issuance, log, activity);
   }
   await refreshTracked();
   await seedInScope();
@@ -316,7 +348,9 @@ if (REDISCOVERY_INTERVAL_MS > 0) {
       log.error("periodic re-discovery failed", { error: String(err) }),
     );
   }, REDISCOVERY_INTERVAL_MS);
-  console.log(`Re-discovery : safety-net re-scan every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (streaming is primary; REDISCOVERY_INTERVAL_MS=0 to disable)`);
+  console.log(
+    `Re-discovery : safety-net re-scan every ${Math.round(REDISCOVERY_INTERVAL_MS / 1000)}s (streaming is primary; REDISCOVERY_INTERVAL_MS=0 to disable)`,
+  );
 }
 
 console.log(`\nArchive serving (Clio-compatible):`);
@@ -341,7 +375,7 @@ if (config.admin.token) {
     ...(config.admin.explorerBaseUrl ? { explorerBaseUrl: config.admin.explorerBaseUrl } : {}),
     logger: log,
     onRegistered: (issuance) => {
-      ingestIssuance(client, db, issuance, log, activity)
+      ingestIssuance(pagingClient, db, issuance, log, activity)
         .then(async () => {
           // Track the new issuance (for tail delta derivation + streaming
           // discovery), and bring its accounts and issuer into the subscription.

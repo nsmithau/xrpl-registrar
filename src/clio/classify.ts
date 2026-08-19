@@ -75,6 +75,13 @@ export function classifyError(err: unknown): ErrorClassification {
     return { code: directCode, retryable: LOAD_ERROR_CODES.has(directCode) };
   }
 
+  // HTTP JSON-RPC transport surfaces status-coded failures: 429 (rate limited)
+  // and 5xx (overloaded/unavailable) are load signals; other statuses are not.
+  const httpStatus = record["httpStatus"];
+  if (typeof httpStatus === "number") {
+    return { code: `HTTP_${httpStatus}`, retryable: httpStatus === 429 || httpStatus >= 500 };
+  }
+
   // Connection / transport level failures, identified by class name.
   const name = readString(record, "name");
   if (name !== undefined && CONNECTION_ERROR_NAMES.has(name)) {

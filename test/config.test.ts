@@ -13,6 +13,7 @@ describe("loadConfig", () => {
     expect(cfg.clio.endpoint).toBe("wss://clio.example");
     expect(cfg.clio.maxRetries).toBe(5);
     expect(cfg.clio.requestTimeout).toBe(30_000);
+    expect(cfg.clio.httpEndpoint).toBeUndefined(); // WS-only unless CLIO_HTTP_ENDPOINT is set
     expect(cfg.governor.maxConcurrent).toBe(4);
     expect(cfg.governor.minBackoffMs).toBe(1_000);
   });
@@ -27,6 +28,14 @@ describe("loadConfig", () => {
     expect(cfg.clio.maxRetries).toBe(9);
     expect(cfg.governor.maxConcurrent).toBe(2);
     expect(cfg.governor.maxBackoffMs).toBe(30_000);
+  });
+
+  it("reads the optional HTTP JSON-RPC endpoint for backfill paging", () => {
+    const cfg = loadConfig({
+      CLIO_ENDPOINT: "wss://clio.example",
+      CLIO_HTTP_ENDPOINT: "https://clio.example:51234/",
+    });
+    expect(cfg.clio.httpEndpoint).toBe("https://clio.example:51234/");
   });
 
   it("rejects a non-integer numeric setting", () => {

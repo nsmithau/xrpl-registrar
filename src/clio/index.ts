@@ -9,6 +9,7 @@ export {
   type SlotRelease,
 } from "./governor.js";
 export { XrplTransport, type ClioTransport, type XrplTransportOptions } from "./transport.js";
+export { HttpTransport, type HttpTransportOptions } from "./httpTransport.js";
 export { classifyError, type ErrorClassification } from "./classify.js";
 export { ClioClientError, ApiVersionError, ClioRequestError } from "./errors.js";
 export type {

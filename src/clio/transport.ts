@@ -40,7 +40,9 @@ export class XrplTransport implements ClioTransport {
   constructor(endpoint: string, options: XrplTransportOptions = {}) {
     this.endpoint = endpoint;
     this.#client = new Client(endpoint, {
-      ...(options.connectionTimeout !== undefined ? { connectionTimeout: options.connectionTimeout } : {}),
+      ...(options.connectionTimeout !== undefined
+        ? { connectionTimeout: options.connectionTimeout }
+        : {}),
       ...(options.requestTimeout !== undefined ? { timeout: options.requestTimeout } : {}),
     });
   }

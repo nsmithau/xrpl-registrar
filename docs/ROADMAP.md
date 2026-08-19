@@ -14,7 +14,7 @@ the storage engine.
 ## 1. Materialised current-holders projection (M–L)
 
 **Why.** `mpt_holders` (and `account_info` / `account_lines`) answer by pulling
-*every* archived transaction's metadata for the issuance, decoding all of it, and
+_every_ archived transaction's metadata for the issuance, decoding all of it, and
 folding it into "latest state per object" in
 [`reconstruct.ts`](../src/api/state/reconstruct.ts). Read cost scales with **history
 depth**, not with the **answer size**. Fine for shallow history; the bottleneck for a
@@ -32,7 +32,7 @@ load-all-then-slice-in-JS.
 **Implications — read these before starting.**
 
 - **Point-in-time is the hard part.** `mpt_holders` accepts `ledger_index` and can
-  answer holdership *as of any past ledger* (it folds up to that ledger). A *current*
+  answer holdership _as of any past ledger_ (it folds up to that ledger). A _current_
   projection only knows "now." Two ways out:
   - **Two-path (recommended):** serve the latest query from the projection; keep the
     reconstruction path for historical `ledger_index` queries. The projection becomes
@@ -44,7 +44,7 @@ load-all-then-slice-in-JS.
   derived table and must be **rebuildable from blobs** (a `rebuild` path) and updated
   **idempotently and order-independently**. Backfill / heal / tail ingest in different
   orders, so the upsert must be "latest by `(ledger_index, transaction_index)` wins"
-  and must honour `DeletedNode` *and* a later re-creation (resurrect). This is exactly
+  and must honour `DeletedNode` _and_ a later re-creation (resurrect). This is exactly
   what `latestObjects` does in one pass — the risk is doing it incrementally under
   out-of-order ingest and re-ingest. Needs adversarial tests: out-of-order pages,
   delete-then-recreate, re-ingest of the same tx.
@@ -60,7 +60,7 @@ load-all-then-slice-in-JS.
 
 **Suggested sequencing.** Validate against a real deep-history issuance so the
 incremental logic can be diffed against reconstruction output at scale. Build table +
-incremental updater + rebuild + cross-check first, prove parity, *then* switch the
+incremental updater + rebuild + cross-check first, prove parity, _then_ switch the
 reads over with reconstruction as fallback.
 
 ---
@@ -73,7 +73,7 @@ signal, `DiscoveryCrossCheck`). [ADR-013](adr/adr-013-issuer-centric-backfill-on
 folded discovery into the issuer sweep and dropped that automatic cross-check;
 `discover()` and its strategies remain as a primitive but are off the default path.
 
-**What.** A periodic (or on-demand) check that flags any *current* holder — from a live
+**What.** A periodic (or on-demand) check that flags any _current_ holder — from a live
 `mpt_holders` / `account_lines` query — missing from the swept set. For regulatory-grade
 data, an independent confirmation that the sweep is complete is worth keeping. Low
 upstream cost (one issuer-scoped current-state query per issuance). Surface a warning /
@@ -81,23 +81,7 @@ metric on mismatch rather than failing.
 
 ---
 
-## 3. HTTP JSON-RPC transport for backfill paging (M) — [ADR-016](adr/adr-016-http-transport-for-backfill-paging.md)
-
-**Why.** Backfill/heal page an issuer's `account_tx` (binary, `limit` 200) over the
-single xrpl.js WebSocket socket, where the large binary responses head-of-line-block:
-load-probing (ADR-015) measured ≈660 ms/page at concurrency 1 ballooning to ~5 s at
-C=4 and timeouts at C=16. Over HTTP JSON-RPC the same paging holds ≈195 ms/page flat
-and parallelises — roughly a 5–25× backfill speedup at scale. The transport, not the
-governor, is the lever.
-
-**What.** Add an HTTP-backed `ClioTransport` and route the paged `account_tx` call
-sites (issuer sweep + gap heal) through it; keep WebSocket for the `subscribe` tail
-and node-state/forwarded calls. Both share the global governor. Add HTTP `503`/`429`
-(+ `Retry-After`) to `classifyError` (WS-only today), and consider a per-transport
-concurrency cap (HTTP parallelises, so it can run higher than WS). No data-shape
-change — identical binary blobs are stored regardless of transport.
-
-## 4. Networked Postgres + multi-process backfill (L)
+## 3. Networked Postgres + multi-process backfill (L)
 
 **Why.** [ADR-010](adr/adr-010-store-the-filtered-archive-in-postgres-not.md) keeps
 storage behind a driver-agnostic interface with PGlite (in-process, single-threaded)
@@ -116,7 +100,7 @@ for CPU/throughput at scale, of which the ingest-side optimisations already land
 
 **Why.** Registering an issuance triggers ingestion in an in-process background task; a
 crash mid-ingest loses the trigger (the backfill job itself is resumable, but the
-*orchestration* is not durable). `resumeBackfills` on startup covers outstanding jobs,
+_orchestration_ is not durable). `resumeBackfills` on startup covers outstanding jobs,
 so this is a robustness gap more than a data-loss one.
 
 **What.** A durable work queue / outbox for ingest orchestration so registration →
@@ -127,7 +111,7 @@ ingest survives a restart without relying on the startup resume sweep.
 ## 6. Periodic external reconciliation against upstream (M)
 
 **Why.** The internal reconciler checks derived balances against state reconstructed
-from our own metadata. That catches derivation bugs, not *archive incompleteness* — a
+from our own metadata. That catches derivation bugs, not _archive incompleteness_ — a
 missed transaction is consistent with itself.
 
 **What.** A periodic cross-check of archived balances/holders against a live upstream

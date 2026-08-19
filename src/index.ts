@@ -8,6 +8,7 @@
 
 import { ClioClient } from "./clio/client.js";
 import { Governor } from "./clio/governor.js";
+import { HttpTransport } from "./clio/httpTransport.js";
 import { XrplTransport } from "./clio/transport.js";
 import { loadConfig, type AppConfig } from "./config/index.js";
 import { consoleLogger, type Logger } from "./logging/logger.js";
@@ -31,10 +32,20 @@ export { consoleLogger, nullLogger, type Logger } from "./logging/logger.js";
  * governor instance is the whole point — construct one here and hand it to
  * every consumer rather than letting components make their own.
  */
+/**
+ * Build the upstream client(s) and their shared governor.
+ *
+ * `client` is the WebSocket client — used for the live subscribe tail, node-state
+ * forwarding, and everything low-volume. `pagingClient` is what the heavy paged
+ * `account_tx` backfill/heal workload should use: an HTTP JSON-RPC client when
+ * `CLIO_HTTP_ENDPOINT` is set (parallelises far better than one WS socket —
+ * ADR-016), otherwise it falls back to the WS `client`. Both share one governor,
+ * so the global concurrency cap and backoff still hold across transports.
+ */
 export function createClioClient(
   config: AppConfig = loadConfig(),
   logger: Logger = consoleLogger,
-): { client: ClioClient; governor: Governor } {
+): { client: ClioClient; pagingClient: ClioClient; governor: Governor } {
   const governor = new Governor(config.governor);
   const transport = new XrplTransport(config.clio.endpoint, {
     connectionTimeout: config.clio.connectionTimeout,
@@ -46,5 +57,19 @@ export function createClioClient(
     maxRetries: config.clio.maxRetries,
     logger,
   });
-  return { client, governor };
+
+  let pagingClient = client;
+  if (config.clio.httpEndpoint) {
+    const httpTransport = new HttpTransport(config.clio.httpEndpoint, {
+      requestTimeout: config.clio.requestTimeout,
+    });
+    pagingClient = new ClioClient({
+      governor,
+      transport: httpTransport,
+      maxRetries: config.clio.maxRetries,
+      logger,
+    });
+  }
+
+  return { client, pagingClient, governor };
 }
