@@ -136,7 +136,7 @@ configuration. Prerequisite for anyone running this against a real filing deadli
 
 - **Upstream replacement** before any real filing — [ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md).
 - **Repository home** (personal vs XRPLF) and a DCO/CLA for outside contributions —
-  [ADR-011](adr/adr-011-license-under-apache-2-0.md).
+  [ADR-011](adr/adr-011-license-under-isc.md).
 - **A registered XRPLF warning id** for the filtered-archive warning (currently a
   provisional id) — [ADR-006](adr/adr-006-keep-warning-id-2001-add-a-separate.md).
 - **UI auth granularity** (inherit admin-port protection vs a distinct login) —

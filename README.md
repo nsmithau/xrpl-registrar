@@ -189,4 +189,4 @@ Backfill is a single `account_tx` sweep on the **issuer**: because every in-scop
 
 Copyright 2026 nsmithau.
 
-Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE) for the full text.
+Licensed under the ISC License — the same license as `xrpld`, Clio, and `xrpl.js`. See [`LICENSE`](LICENSE) for the full text.

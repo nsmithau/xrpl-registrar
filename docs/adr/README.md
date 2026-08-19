@@ -20,7 +20,7 @@ Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted.
 | [ADR-008](adr-008-typescript-on-node-with-xrpl-v5.md)                       | TypeScript on Node with `xrpl` v5                                                     |
 | [ADR-009](adr-009-operator-ui-is-read-only-and-admin.md)                    | Operator UI is read-only and admin-port bound                                         |
 | [ADR-010](adr-010-store-the-filtered-archive-in-postgres-not.md)            | Store the filtered archive in Postgres, not Clio's Scylla/Cassandra backend           |
-| [ADR-011](adr-011-license-under-apache-2-0.md)                              | License under Apache-2.0                                                              |
+| [ADR-011](adr-011-license-under-isc.md)                                     | License under ISC (the XRPL-core license)                                             |
 | [ADR-012](adr-012-tail-driven-incremental-maintenance-not-periodic-full.md) | Tail-driven incremental maintenance, not periodic full re-derivation/re-scan          |
 | [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md)          | Issuer-centric backfill — one `account_tx` sweep per issuer, not per holder           |
 | [ADR-014](adr-014-resolve-ledger-close-times-lazily-not-eagerly.md)         | Resolve ledger close times lazily, not eagerly at ingest                              |

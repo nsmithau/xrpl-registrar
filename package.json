@@ -2,7 +2,7 @@
   "name": "xrpl-registrar",
   "version": "0.0.0",
   "description": "Open-source, self-hosted XRPL transaction archive scoped to token issuances, sourced from Clio.",
-  "license": "Apache-2.0",
+  "license": "ISC",
   "author": "nsmithau (https://github.com/nsmithau)",
   "repository": {
     "type": "git",
