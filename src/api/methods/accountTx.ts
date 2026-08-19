@@ -20,12 +20,21 @@ function clampLimit(value: unknown): number {
   return Math.max(1, Math.min(MAX_LIMIT, Math.trunc(n)));
 }
 
-function markerOffset(marker: unknown): number {
-  if (typeof marker === "string") {
-    const n = Number.parseInt(marker, 10);
-    if (Number.isFinite(n) && n >= 0) return n;
-  }
-  return 0;
+/**
+ * A keyset cursor `"<ledgerIndex>:<hash>"` naming the last row of the previous
+ * page. Keyset paging (a `(ledger_index, hash)` comparison matching ORDER BY) is
+ * stable under concurrent ingest, unlike a numeric OFFSET which shifts when the
+ * live tail inserts newer rows between page fetches. Returns undefined for an
+ * absent or unparseable marker (paging then starts from the beginning).
+ */
+function parseMarker(marker: unknown): { ledger: number; hash: string } | undefined {
+  if (typeof marker !== "string") return undefined;
+  const idx = marker.indexOf(":");
+  if (idx < 0) return undefined;
+  const ledger = Number(marker.slice(0, idx));
+  const hash = marker.slice(idx + 1);
+  if (!Number.isInteger(ledger) || ledger < 0 || hash === "") return undefined;
+  return { ledger, hash };
 }
 
 interface TxRow extends Row {
@@ -77,7 +86,7 @@ export async function handleAccountTx(
   const binary = req.binary === true;
   const ascending = req.forward === true;
   const limit = clampLimit(req.limit);
-  const offset = markerOffset(req.marker);
+  const cursor = parseMarker(req.marker);
 
   const reqMin = asNumber(req.ledger_index_min);
   const reqMax = asNumber(req.ledger_index_max);
@@ -87,19 +96,31 @@ export async function handleAccountTx(
   const qMax = reqMax !== undefined && reqMax >= 0 ? Math.min(reqMax, covHi) : covHi;
 
   const order = ascending ? "ASC" : "DESC";
+  // Keyset cursor: rows strictly past the previous page's last row, in the same
+  // order as ORDER BY (a row-value comparison, so ties on ledger_index break on
+  // hash consistently). Stable when the tail ingests concurrently.
+  const params: unknown[] = [account, qMin, qMax];
+  let keyset = "";
+  if (cursor) {
+    keyset = `AND (t.ledger_index, t.hash) ${ascending ? ">" : "<"} ($4, $5)`;
+    params.push(cursor.ledger, cursor.hash);
+  }
+  params.push(limit + 1);
   const { rows } = await db.query<TxRow>(
     `SELECT t.tx_blob, t.meta_blob, t.ledger_index, t.hash, t.close_time_iso
      FROM account_transactions at
      JOIN transactions t ON t.hash = at.hash
-     WHERE at.address = $1 AND t.ledger_index BETWEEN $2 AND $3
+     WHERE at.address = $1 AND t.ledger_index BETWEEN $2 AND $3 ${keyset}
      ORDER BY t.ledger_index ${order}, t.hash ${order}
-     LIMIT $4 OFFSET $5`,
-    [account, qMin, qMax, limit + 1, offset],
+     LIMIT $${params.length}`,
+    params,
   );
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const transactions = page.map((r) => (binary ? binaryEntry(r) : jsonEntry(r)));
+  const last = page[page.length - 1];
+  const nextMarker = hasMore && last ? `${Number(last.ledger_index)}:${last.hash}` : undefined;
 
   // Report a real ledger range, never a -1 echo (see design principles). With
   // coverage, the guaranteed-complete window; without a coverage row yet, the
@@ -124,7 +145,7 @@ export async function handleAccountTx(
     limit,
     transactions,
     validated: true,
-    ...(hasMore ? { marker: String(offset + limit) } : {}),
+    ...(nextMarker !== undefined ? { marker: nextMarker } : {}),
   };
 
   const extraWarnings = [];

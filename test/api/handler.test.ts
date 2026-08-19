@@ -172,6 +172,55 @@ describe("ArchiveApi", () => {
     expect(warningIds(res.warnings)).toContain(65002);
   });
 
+  it("account_tx paginates by a stable keyset cursor (no dup/skip when the tail ingests mid-page)", async () => {
+    // seed gives rInScope T1@100, T2@200; add T3@300 and widen coverage to cover it.
+    await new TransactionRepository(db).ingest({
+      hash: "T3",
+      ledgerIndex: 300,
+      txType: "Payment",
+      txBlob: new Uint8Array([7]),
+      metaBlob: new Uint8Array([7]),
+      provenance: PROV,
+      accounts: ["rInScope"],
+    });
+    await db.query("UPDATE coverage SET to_ledger = 400 WHERE address = 'rInScope'");
+
+    const p1 = await api.handle({
+      command: "account_tx",
+      account: "rInScope",
+      api_version: 2,
+      binary: true,
+      limit: 1,
+    });
+    const page1 = p1.result.transactions as { ledger_index: number }[];
+    expect(page1[0]!.ledger_index).toBe(300); // newest first (DESC)
+    const marker = p1.result.marker as string;
+    expect(marker).toBe("300:T3");
+
+    // A newer transaction lands between page fetches. With OFFSET paging this
+    // would shift the boundary and re-return T3; the keyset cursor is immune.
+    await new TransactionRepository(db).ingest({
+      hash: "T4",
+      ledgerIndex: 400,
+      txType: "Payment",
+      txBlob: new Uint8Array([8]),
+      metaBlob: new Uint8Array([8]),
+      provenance: PROV,
+      accounts: ["rInScope"],
+    });
+
+    const p2 = await api.handle({
+      command: "account_tx",
+      account: "rInScope",
+      api_version: 2,
+      binary: true,
+      limit: 1,
+      marker,
+    });
+    const page2 = p2.result.transactions as { ledger_index: number }[];
+    expect(page2[0]!.ledger_index).toBe(200); // the next-older row, not a repeat of 300 nor the new 400
+  });
+
   it("account_tx reports a real ledger range (never -1) and warns when the account has no coverage row", async () => {
     // In scope (ingest records it in `accounts`) but no coverage row → discovered
     // yet not backfilled. Must report the actual data range, not a -1 echo.
