@@ -12,15 +12,15 @@ promote them to an environment if you prefer.
 
 ## Set the variables
 
-| Variable | What it is | Default |
-|----------|------------|---------|
-| `readUrl` | Public read API base URL | `http://127.0.0.1:51234` |
-| `adminUrl` | Admin API base URL (separate port) | `http://127.0.0.1:51235` |
-| `adminToken` | Your `ADMIN_TOKEN` — **required for the Admin folder** | *(empty)* |
-| `mptIssuanceId` | 48-hex MPTokenIssuanceID to query | a testnet example |
-| `account` | An issuer/holder address (`r…`) | *(empty)* |
-| `currency` / `issuer` | IOU identity (alternative to `mptIssuanceId`) | `USD` / *(empty)* |
-| `issuanceId` | Numeric issuance id | `1` (auto-set by *Register*) |
+| Variable              | What it is                                             | Default                      |
+| --------------------- | ------------------------------------------------------ | ---------------------------- |
+| `readUrl`             | Public read API base URL                               | `http://127.0.0.1:51234`     |
+| `adminUrl`            | Admin API base URL (separate port)                     | `http://127.0.0.1:51235`     |
+| `adminToken`          | Your `ADMIN_TOKEN` — **required for the Admin folder** | _(empty)_                    |
+| `mptIssuanceId`       | 48-hex MPTokenIssuanceID to query                      | a testnet example            |
+| `account`             | An issuer/holder address (`r…`)                        | _(empty)_                    |
+| `currency` / `issuer` | IOU identity (alternative to `mptIssuanceId`)          | `USD` / _(empty)_            |
+| `issuanceId`          | Numeric issuance id                                    | `1` (auto-set by _Register_) |
 
 At minimum set `adminToken`, and set `mptIssuanceId` + `account` (or
 `currency` + `issuer`) to real values.
@@ -29,16 +29,17 @@ At minimum set `adminToken`, and set `mptIssuanceId` + `account` (or
 
 - **Admin API (authenticated)** — register / list / inspect / pause / resume
   issuances. Bearer auth (`{{adminToken}}`) is applied at the folder level.
-  *Register MPT issuance* saves the returned id into `{{issuanceId}}`.
+  _Register MPT issuance_ saves the returned id into `{{issuanceId}}`.
 - **Reporting extensions (`archive_*`)** — `archive_balance_at` (point-in-time
   balance) and `archive_transactions` (itemised per-transaction balance changes),
   the latter filterable by account, ledger range, or date range (`"validated"` =
   latest). Served from the read API over HTTP JSON-RPC; `api_version: 2` is
   included on every request.
-- **Archive reads (Clio-compatible)** — `mpt_holders` and `account_tx`. These
-  mirror Clio exactly and are **not** specific to this tool (any Clio/xrpl.js
-  client works against the read port); included to show the fail-closed scope
-  behaviour (`notInArchive`).
+- **Archive reads (Clio-compatible)** — `mpt_holders`, `gateway_balances` (IOU
+  issuer obligations, with a hot-wallet variant), and `account_tx`. These mirror
+  Clio exactly and are **not** specific to this tool (any Clio/xrpl.js client
+  works against the read port); included to show the fail-closed scope behaviour
+  (`notInArchive`, and `outOfCoverage` for `gateway_balances`).
 
 ## Typical flow
 

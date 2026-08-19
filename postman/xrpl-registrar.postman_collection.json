@@ -35,13 +35,8 @@
             ],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances"]
             },
             "description": "Register an MPT issuance by its 48-hex MPTokenIssuanceID. `backfillFromLedger` is optional. On success returns 201 `{ issuance }`; this request saves the new id into the `issuanceId` variable.",
             "body": {
@@ -83,13 +78,8 @@
             ],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances"]
             },
             "description": "Register an IOU issuance by currency + issuer account. `backfillFromLedger` is optional.",
             "body": {
@@ -107,9 +97,7 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('registered (201)', () => pm.response.to.have.status(201));"
-                ]
+                "exec": ["pm.test('registered (201)', () => pm.response.to.have.status(201));"]
               }
             }
           ]
@@ -121,13 +109,8 @@
             "header": [],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances"]
             },
             "description": "List every configured issuance. Response also carries `latestLedger` (where the live tail is) and `activity` — the live backfill/discovery indicators shown on the dashboard."
           },
@@ -136,9 +119,7 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
-                ]
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
               }
             }
           ]
@@ -150,14 +131,8 @@
             "header": [],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances",
-                "{{issuanceId}}"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances", "{{issuanceId}}"]
             },
             "description": "Full status for one issuance: account count, transactions archived, latest ledger, backfill job summary, coverage range, and the last reconciliation result."
           },
@@ -166,9 +141,7 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
-                ]
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
               }
             }
           ]
@@ -185,14 +158,8 @@
             ],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances",
-                "{{issuanceId}}"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances", "{{issuanceId}}"]
             },
             "description": "Pause an issuance. The account set is append-only and is never pruned; pausing only stops further work.",
             "body": {
@@ -218,14 +185,8 @@
             ],
             "url": {
               "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
-              "host": [
-                "{{adminUrl}}"
-              ],
-              "path": [
-                "admin",
-                "issuances",
-                "{{issuanceId}}"
-              ]
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances", "{{issuanceId}}"]
             },
             "description": "Re-enable a paused issuance.",
             "body": {
@@ -269,12 +230,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "An account's balance in an issuance as of a ledger index (sum of its deltas up to and including that ledger). Warns if the ledger exceeds the account's coverage."
           },
@@ -312,12 +269,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Same, but resolve the point in time from an ISO `date`: the balance as of the ledger in effect at or before that instant. Requires ledger close times to have been captured."
           },
@@ -355,12 +308,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Identify the issuance by its local numeric id (as shown by the admin API/dashboard) — the same request shape for MPT and IOU. issuance_id is instance-local; use mpt_issuance_id or currency+issuer for portable/reproducible queries."
           },
@@ -398,12 +347,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "An IOU holder's balance as of a ledger, identified by currency + issuer. Currency accepts the readable code (USD, RLUSD) or the 40-hex form."
           },
@@ -441,12 +386,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Every balance-changing transaction for one account of an issuance. With no range the bounds default to `[0, latest]` (all history). One `transactions[]` entry per (transaction, account): `account`, signed `delta`, `ledger`, `hash`, oldest first."
           },
@@ -484,12 +425,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Balance-changing transactions for an issuance over `[from_ledger, to_ledger]` (`to_ledger` may be `\"validated\"` = the archive's latest ledger). Add `account` to scope to one holder."
           },
@@ -527,12 +464,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Same, but the range is given as ISO `from_time` / `to_time`, each resolved to the ledger in effect at that time."
           },
@@ -570,12 +503,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "IOU variant: identify the issuance by `currency` + `issuer` instead of `mpt_issuance_id`. Filters are the same (`account`, ledger range, or date range)."
           },
@@ -622,12 +551,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "Current holders of an MPT from the archive, scope-checked."
           },
@@ -636,9 +561,79 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
-                ]
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "gateway_balances — IOU issuer obligations",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"gateway_balances\",\n  \"params\": [\n    {\n      \"account\": \"{{issuer}}\",\n      \"ledger_index\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": ["{{readUrl}}"],
+              "path": [""]
+            },
+            "description": "Total obligations (tokens in circulation) per registered IOU currency of an issuer, as of a ledger (`ledger_index` defaults to the archive's latest; accepts a number or \"validated\"). The IOU analogue of `mpt_holders`. Fail-closed: an issuer with no tracked IOU returns `notInArchive`; a ledger outside coverage returns `outOfCoverage`. `assets` is out of scope and omitted (warning 65004)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "gateway_balances — with a hot wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"gateway_balances\",\n  \"params\": [\n    {\n      \"account\": \"{{issuer}}\",\n      \"hotwallet\": [\"{{account}}\"],\n      \"ledger_index\": \"validated\",\n      \"api_version\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{readUrl}}/",
+              "host": ["{{readUrl}}"],
+              "path": [""]
+            },
+            "description": "Same, with one or more `hotwallet` accounts broken out of `obligations` into a separate `balances` map (accepts a single address or an array), matching Clio."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
               }
             }
           ]
@@ -664,12 +659,8 @@
             },
             "url": {
               "raw": "{{readUrl}}/",
-              "host": [
-                "{{readUrl}}"
-              ],
-              "path": [
-                ""
-              ]
+              "host": ["{{readUrl}}"],
+              "path": [""]
             },
             "description": "An in-scope account's transaction history from the archive, with honest coverage bounds. Out-of-scope accounts fail closed with `notInArchive`."
           },
@@ -678,9 +669,7 @@
               "listen": "test",
               "script": {
                 "type": "text/javascript",
-                "exec": [
-                  "pm.test('ok (200)', () => pm.response.to.have.status(200));"
-                ]
+                "exec": ["pm.test('ok (200)', () => pm.response.to.have.status(200));"]
               }
             }
           ]
