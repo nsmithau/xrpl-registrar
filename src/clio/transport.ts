@@ -21,6 +21,9 @@ export interface ClioTransport {
 export interface XrplTransportOptions {
   /** Connection timeout in ms, passed to xrpl.js. */
   readonly connectionTimeout?: number;
+  /** Per-request timeout in ms, passed to xrpl.js as `timeout`. Generous so a
+   * slow-but-valid heavy `account_tx` page is not spuriously failed. */
+  readonly requestTimeout?: number;
 }
 
 /**
@@ -36,12 +39,10 @@ export class XrplTransport implements ClioTransport {
 
   constructor(endpoint: string, options: XrplTransportOptions = {}) {
     this.endpoint = endpoint;
-    this.#client = new Client(
-      endpoint,
-      options.connectionTimeout !== undefined
-        ? { connectionTimeout: options.connectionTimeout }
-        : {},
-    );
+    this.#client = new Client(endpoint, {
+      ...(options.connectionTimeout !== undefined ? { connectionTimeout: options.connectionTimeout } : {}),
+      ...(options.requestTimeout !== undefined ? { timeout: options.requestTimeout } : {}),
+    });
   }
 
   async connect(): Promise<void> {

@@ -8,6 +8,11 @@ export interface AppConfig {
     readonly maxRetries: number;
     /** WebSocket connection timeout in ms. */
     readonly connectionTimeout: number;
+    /** Per-request timeout in ms. Generous by default: a heavy `account_tx`
+     * page can legitimately take several seconds (probe: multi-second p50 on
+     * testnet), so a short timeout would spuriously fail slow-but-valid pages
+     * and drive needless backoff/retries. */
+    readonly requestTimeout: number;
   };
   readonly db: {
     /**
@@ -57,6 +62,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       endpoint,
       maxRetries: intFromEnv(env.CLIO_MAX_RETRIES, 5),
       connectionTimeout: intFromEnv(env.CLIO_CONNECTION_TIMEOUT_MS, 20_000),
+      requestTimeout: intFromEnv(env.CLIO_REQUEST_TIMEOUT_MS, 30_000),
     },
     db: {
       dataDir: env.DATABASE_DIR?.trim() || undefined,

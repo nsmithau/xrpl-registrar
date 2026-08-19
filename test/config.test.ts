@@ -12,6 +12,7 @@ describe("loadConfig", () => {
     const cfg = loadConfig({ CLIO_ENDPOINT: "wss://clio.example" });
     expect(cfg.clio.endpoint).toBe("wss://clio.example");
     expect(cfg.clio.maxRetries).toBe(5);
+    expect(cfg.clio.requestTimeout).toBe(30_000);
     expect(cfg.governor.maxConcurrent).toBe(4);
     expect(cfg.governor.minBackoffMs).toBe(1_000);
   });

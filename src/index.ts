@@ -38,6 +38,7 @@ export function createClioClient(
   const governor = new Governor(config.governor);
   const transport = new XrplTransport(config.clio.endpoint, {
     connectionTimeout: config.clio.connectionTimeout,
+    requestTimeout: config.clio.requestTimeout,
   });
   const client = new ClioClient({
     governor,

@@ -57,6 +57,13 @@ const PROBE_ACCOUNT = process.env.PROBE_ACCOUNT ?? "rQhWct2fv4Vc4KRjRgMrxa8xPN9Z
 interface Method {
   readonly command: string;
   readonly params: Record<string, unknown>;
+  /** Multi-second latency — skip the open-loop rate ramp (dispatch would just
+   * pile up requests faster than they complete). */
+  readonly heavy?: boolean;
+  /** Follows a `marker` cursor — each request fetches the next page, so the
+   * probe walks distinct (mostly-cold) ranges instead of refetching one warm
+   * page. Representative of real backfill cost. */
+  readonly paginated?: boolean;
 }
 const METHODS: Record<string, Method> = {
   server_info: { command: "server_info", params: {} },
@@ -64,6 +71,7 @@ const METHODS: Record<string, Method> = {
   ledger_expand: {
     command: "ledger",
     params: { ledger_index: "validated", transactions: true, expand: true, binary: true },
+    heavy: true,
   },
   account_tx: {
     command: "account_tx",
@@ -75,6 +83,8 @@ const METHODS: Record<string, Method> = {
       forward: true,
       limit: 200,
     },
+    heavy: true,
+    paginated: true,
   },
 };
 
@@ -120,11 +130,14 @@ interface Outcome {
   readonly retryable?: boolean;
   readonly httpStatus?: number;
   readonly retryAfter?: string;
+  /** For paginated methods: the `marker` to pass to the next request (undefined
+   * at the end of the account's history — the caller restarts from the top). */
+  readonly nextCursor?: unknown;
 }
 
 interface Transport {
   readonly kind: "ws" | "http";
-  send(method: string): Promise<Outcome>;
+  send(method: string, cursor?: unknown): Promise<Outcome>;
   disconnects(): number;
   close(): Promise<void>;
 }
@@ -140,14 +153,22 @@ async function wsTransport(target: Target): Promise<Transport> {
 
   return {
     kind: "ws",
-    async send(method) {
+    async send(method, cursor) {
       const started = nowMs();
       try {
         if (!client.isConnected()) await client.connect();
         const m = METHODS[method]!;
-        const req = { command: m.command, api_version: 2, ...m.params };
-        await client.request(req as Parameters<Client["request"]>[0]);
-        return { ok: true, latencyMs: nowMs() - started };
+        const req = {
+          command: m.command,
+          api_version: 2,
+          ...m.params,
+          ...(m.paginated && cursor !== undefined ? { marker: cursor } : {}),
+        };
+        const resp = await client.request(req as Parameters<Client["request"]>[0]);
+        const nextCursor = m.paginated
+          ? (resp as { result?: { marker?: unknown } }).result?.marker
+          : undefined;
+        return { ok: true, latencyMs: nowMs() - started, nextCursor };
       } catch (err) {
         const { code, retryable } = classifyError(err);
         return { ok: false, latencyMs: nowMs() - started, code: code ?? "unknown", retryable };
@@ -164,10 +185,15 @@ async function wsTransport(target: Target): Promise<Transport> {
 function httpTransport(target: Target): Transport {
   return {
     kind: "http",
-    async send(method) {
+    async send(method, cursor) {
       const started = nowMs();
       const m = METHODS[method]!;
-      const body = JSON.stringify({ method: m.command, params: [{ api_version: 2, ...m.params }] });
+      const params = {
+        api_version: 2,
+        ...m.params,
+        ...(m.paginated && cursor !== undefined ? { marker: cursor } : {}),
+      };
+      const body = JSON.stringify({ method: m.command, params: [params] });
       try {
         const res = await fetch(target.http, {
           method: "POST",
@@ -198,13 +224,18 @@ function httpTransport(target: Target): Transport {
         }
         // A JSON-RPC-level error (e.g. slowDown) rides inside result.error.
         const parsed: unknown = await res.json();
-        const result = (parsed as { result?: { error?: unknown } }).result;
+        const result = (parsed as { result?: { error?: unknown; marker?: unknown } }).result;
         const errCode = typeof result?.error === "string" ? result.error : undefined;
         if (errCode) {
           const { retryable } = classifyError({ data: { error: errCode } });
           return { ok: false, latencyMs, code: errCode, retryable, httpStatus: res.status };
         }
-        return { ok: true, latencyMs, httpStatus: res.status };
+        return {
+          ok: true,
+          latencyMs,
+          httpStatus: res.status,
+          nextCursor: m.paginated ? result?.marker : undefined,
+        };
       } catch (err) {
         const { code, retryable } = classifyError(err);
         return { ok: false, latencyMs: nowMs() - started, code: code ?? "fetch_failed", retryable };
@@ -220,7 +251,7 @@ interface RunResult {
   target: string;
   transport: "ws" | "http";
   method: string;
-  mode: "concurrency" | "rate";
+  mode: "concurrency" | "rate" | "recovery";
   level: number;
   durationMs: number;
   sent: number;
@@ -233,6 +264,9 @@ interface RunResult {
   retryAfterSeen: string | null;
   disconnects: number;
   firstErrorAtMs: number | null;
+  /** Recovery phase only: ms from end-of-drive to a 3-success streak, or null
+   * if it never recovered within the window. */
+  recoveryMs?: number | null;
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -297,8 +331,15 @@ async function runConcurrency(
 ): Promise<Outcome[]> {
   const deadline = nowMs() + durationMs;
   const outcomes: Outcome[] = [];
+  // Each worker walks its own marker chain for paginated methods, so the fleet
+  // covers distinct (mostly-cold) pages rather than refetching one warm page.
   const worker = async (): Promise<void> => {
-    while (nowMs() < deadline) outcomes.push(await t.send(method));
+    let cursor: unknown = undefined;
+    while (nowMs() < deadline) {
+      const o = await t.send(method, cursor);
+      outcomes.push(o);
+      cursor = o.nextCursor; // undefined ⇒ non-paginated, or end of history: restart from the top
+    }
   };
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return outcomes;
@@ -396,6 +437,12 @@ async function phaseConcurrency(
 }
 
 async function phaseRate(t: Transport, target: string, method: string): Promise<number | null> {
+  if (METHODS[method]!.heavy) {
+    console.log(
+      `  ↳ skipping rate ramp for heavy method '${method}' — multi-second latency makes open-loop rate meaningless (use the concurrency ramp)`,
+    );
+    return null;
+  }
   let knee: number | null = null;
   for (const rate of CFG.rateLevels) {
     if (rate > CFG.maxRate) break;
@@ -450,21 +497,33 @@ async function phaseRecovery(
 ): Promise<void> {
   // Drive into throttle, then probe single requests until a success streak returns.
   const driveLevel = Math.min(CFG.maxConcurrency, (kneeConcurrency ?? 16) * 2);
+  const d0 = t.disconnects();
   await runConcurrency(t, method, driveLevel, CFG.burstMs);
   const startedRecovery = nowMs();
+  const probe: Outcome[] = [];
   let streak = 0;
-  let recoveredMs: number | null = null;
+  let recoveryMs: number | null = null;
   while (nowMs() - startedRecovery < CFG.recoveryMaxMs) {
     const o = await t.send(method);
+    probe.push(o);
     streak = o.ok ? streak + 1 : 0;
     if (streak >= 3) {
-      recoveredMs = nowMs() - startedRecovery;
+      recoveryMs = nowMs() - startedRecovery;
       break;
     }
     await sleep(1_000);
   }
+  record({
+    ...summarize(
+      { target, transport: t.kind, method, mode: "recovery", level: driveLevel, durationMs: 0 },
+      probe,
+      startedRecovery,
+      t.disconnects() - d0,
+    ),
+    recoveryMs,
+  });
   console.log(
-    `[${target}/${t.kind}/${method}] recovery: ${recoveredMs === null ? `>${CFG.recoveryMaxMs}ms (not recovered)` : `${recoveredMs}ms`} after driving concurrency=${driveLevel}`,
+    `[${target}/${t.kind}/${method}] recovery: ${recoveryMs === null ? `>${CFG.recoveryMaxMs}ms (not recovered)` : `${recoveryMs}ms`} after driving concurrency=${driveLevel}`,
   );
 }
 
