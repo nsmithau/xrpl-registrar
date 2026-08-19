@@ -81,7 +81,40 @@ metric on mismatch rather than failing.
 
 ---
 
-## 3. Networked Postgres + multi-process backfill (L)
+## 3. `gateway_balances` for IOU issuers (M) — [ADR-017](adr/adr-017-gateway-balances-for-iou-issuers.md)
+
+**Why.** `mpt_holders` gives an MPT issuer's issuer-level view, but IOU issuers
+have no equivalent aggregate — "how much of this token is in circulation" today
+means enumerating `account_lines` on the issuer and summing client-side.
+`gateway_balances` is the Clio method for exactly this, and we already hold the
+primitives: [`reconcile/iou.ts`](../src/reconcile/iou.ts) reconstructs per-holder
+IOU balances, and `archive_balance_at` resolves balances as of a ledger.
+`obligations` is then the sum of every in-scope holder's balance — exact, because
+the archive's guarantee is a complete holder set.
+
+**What.** Serve `gateway_balances` as an archive-scoped, scope-checked read
+(`api_version 2`), computed from the archive, never forwarded. Per ADR-017:
+report `obligations` per **registered IOU issuance of the requested issuer**,
+honour `hotwallet` (broken out into `balances`), resolve as-of via the
+`archive_balance_at` path, and **fail closed** — `notInArchive` for an untracked
+issuer, an error (not a silent omission) for a currency whose coverage misses the
+requested ledger.
+
+**Implications — read these before starting.**
+
+- **`assets` cannot be answered.** The archive tracks the issuer as an issuer,
+  not as a holder of third-party tokens. Omit the field (not `{}`) and surface the
+  filtered-archive warning (ADR-006) — honesty over drop-in fidelity. See ADR-017.
+- **Multi-currency scope.** One issuer may issue several currencies; report only
+  the registered ones, and make the response's scope explicit so a partial map is
+  never read as complete.
+- **Read cost.** Like `mpt_holders`, a per-call reconstruction over history; the
+  materialised current-holders / `object_state` projection ([#1](#1-materialised-current-holders-projection-ml))
+  is the natural optimisation for the latest-ledger case once this ships.
+
+---
+
+## 4. Networked Postgres + multi-process backfill (L)
 
 **Why.** [ADR-010](adr/adr-010-store-the-filtered-archive-in-postgres-not.md) keeps
 storage behind a driver-agnostic interface with PGlite (in-process, single-threaded)
