@@ -56,6 +56,16 @@ The unit of configuration is the **issuance**, not an account list. An operator 
 
 The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. API clients (curl, Postman, xrpl.js) authenticate with `Authorization: Bearer <token>` on every request. The browser dashboard instead signs in once via `POST /admin/login`, which exchanges the token for an httpOnly, `SameSite=Strict` session cookie — so the token is never kept in JS-readable storage. Never expose this port publicly — it surfaces account addresses and archive scope.
 
+The token is a shared secret you choose — there is no registration step and no default. Generate a high-entropy value (at least 256 bits) with a CSPRNG rather than inventing one by hand; any of these work:
+
+```bash
+openssl rand -hex 32          # 64 hex chars
+# or
+head -c 32 /dev/urandom | base64
+```
+
+Treat it like a password: store it only in the environment (`ADMIN_TOKEN`, or the `0600` service env file — never commit it), rotate it by setting a new value and restarting, and use a distinct token per deployment. Changing `ADMIN_TOKEN` immediately invalidates existing bearer requests and dashboard sessions.
+
 ```bash
 # Register an MPT issuance
 curl -s http://127.0.0.1:51235/admin/issuances \
