@@ -187,7 +187,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div id="recent-summary" hidden></div>
   <div id="recent" class="card" hidden>
     <table>
-      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Transaction</th><th>Type</th><th>Identifier</th><th>Result</th></tr></thead>
+      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Identifier</th><th>Type</th><th>Transaction</th><th>Result</th></tr></thead>
       <tbody id="recentRows"></tbody>
     </table>
   </div>
@@ -319,16 +319,12 @@ export const DASHBOARD_HTML = `<!doctype html>
     sum.textContent = txns.length + " recent transactions tracked";
     txns.forEach(function (x) {
       var tr = document.createElement("tr");
+      // Column order: Ledger, Date (UTC), Identifier, Type, Transaction, Result.
       var lt = document.createElement("td"); lt.className = "mono";
       var lh = exUrl("ledgers", x.ledgerIndex);
       lt.appendChild(lh ? exLink(x.ledgerIndex, lh) : document.createTextNode(String(x.ledgerIndex)));
       tr.appendChild(lt);
       cell(tr, x.closeTimeUtc ? x.closeTimeUtc + " UTC" : "\\u2014", x.closeTimeUtc ? "" : "muted");
-      var ht = document.createElement("td"); ht.className = "mono";
-      var hh = exUrl("transactions", x.hash);
-      ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
-      tr.appendChild(ht);
-      cell(tr, x.txType);
       // Identifier: which tracked issuance(s) this transaction relates to. The
       // label is the MPT ticker/short id or IOU currency; the full id/issuer is
       // the hover tooltip. Comma-separated when a tx touches more than one.
@@ -342,6 +338,11 @@ export const DASHBOARD_HTML = `<!doctype html>
         });
       } else { idt.textContent = "\\u2014"; idt.className = "mono muted"; }
       tr.appendChild(idt);
+      cell(tr, x.txType);
+      var ht = document.createElement("td"); ht.className = "mono";
+      var hh = exUrl("transactions", x.hash);
+      ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
+      tr.appendChild(ht);
       cell(tr, x.result || "\\u2014", x.result === "tesSUCCESS" ? "ok" : (x.result ? "bad" : "muted"));
       tb.appendChild(tr);
     });
