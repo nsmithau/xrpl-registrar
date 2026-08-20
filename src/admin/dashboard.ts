@@ -253,6 +253,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     try { document.execCommand("copy"); } catch (e) { /* ignore */ }
     document.body.removeChild(ta);
   }
+  // A button that copies the given full value to the clipboard (icon swaps to a
+  // check briefly on success).
+  function copyButton(full) {
+    var btn = document.createElement("button"); btn.type = "button"; btn.className = "copy";
+    btn.innerHTML = copyIcon; btn.title = "Copy " + full; btn.setAttribute("aria-label", "Copy " + full);
+    btn.onclick = function () { copyText(full, btn); };
+    return btn;
+  }
   // Identifier cell: display label + a button that copies the full value. An
   // optional hover shows the full identifier as a tooltip on the label (used to
   // surface the mpt id behind a ticker).
@@ -264,12 +272,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     labelEl.textContent = label;
     if (hover) labelEl.title = hover;
     td.appendChild(labelEl);
-    if (full) {
-      var btn = document.createElement("button"); btn.type = "button"; btn.className = "copy";
-      btn.innerHTML = copyIcon; btn.title = "Copy " + full; btn.setAttribute("aria-label", "Copy " + full);
-      btn.onclick = function () { copyText(full, btn); };
-      td.appendChild(btn);
-    }
+    if (full) td.appendChild(copyButton(full));
     tr.appendChild(td);
   }
 
@@ -339,6 +342,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       var ht = document.createElement("td"); ht.className = "mono";
       var hh = exUrl("transactions", x.hash);
       ht.appendChild(hh ? exLink(short(x.hash), hh, x.hash) : (function () { var s = document.createElement("span"); s.textContent = short(x.hash); s.title = x.hash; return s; })());
+      ht.appendChild(copyButton(x.hash)); // copy the full transaction hash
       tr.appendChild(ht);
       var lt = document.createElement("td"); lt.className = "mono";
       var lh = exUrl("ledgers", x.ledgerIndex);
