@@ -178,7 +178,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div class="card">
     <table>
       <thead><tr>
-        <th>ID</th><th>Kind</th><th>Identifier</th><th>Enabled</th>
+        <th>Identifier</th><th>Kind</th><th>Enabled</th>
         <th>Accounts</th><th>Txns</th><th>Earliest</th><th>Latest</th><th>Backfill</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -187,7 +187,7 @@ export const DASHBOARD_HTML = `<!doctype html>
   <div id="recent-summary" hidden></div>
   <div id="recent" class="card" hidden>
     <table>
-      <thead><tr><th>Ledger</th><th>Date (UTC)</th><th>Identifier</th><th>Type</th><th>Transaction</th><th>Result</th></tr></thead>
+      <thead><tr><th>Identifier</th><th>Ledger</th><th>Date (UTC)</th><th>Type</th><th>Transaction</th><th>Result</th></tr></thead>
       <tbody id="recentRows"></tbody>
     </table>
   </div>
@@ -277,8 +277,8 @@ export const DASHBOARD_HTML = `<!doctype html>
     var i = s.issuance, bf = s.backfill;
     var total = bf.pending + bf.running + bf.completed + bf.failed;
     var tr = document.createElement("tr");
-    cell(tr, i.id);
-    cell(tr, i.kind);
+    // Identifier first (the ID column was dropped — it is an instance-local
+    // number of no value to operators).
     if (i.kind === "mpt") {
       // Prefer the ticker; the full mpt id is the hover tooltip and the copy value,
       // and (when an explorer is configured) links to the MPT issuance.
@@ -289,6 +289,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       // the copy value, and the explorer link points at the token (currency +
       // issuer), not the bare issuer account.
     } else identifierCell(tr, i.currency, i.issuerAccount, i.issuerAccount, exUrl("token", iouTokenId(i.currency, i.issuerAccount)));
+    cell(tr, i.kind);
     cell(tr, i.enabled ? "yes" : "no", i.enabled ? "" : "muted");
     cell(tr, s.accounts);
     cell(tr, s.transactions);
@@ -319,12 +320,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     sum.textContent = txns.length + " recent transactions tracked";
     txns.forEach(function (x) {
       var tr = document.createElement("tr");
-      // Column order: Ledger, Date (UTC), Identifier, Type, Transaction, Result.
-      var lt = document.createElement("td"); lt.className = "mono";
-      var lh = exUrl("ledgers", x.ledgerIndex);
-      lt.appendChild(lh ? exLink(x.ledgerIndex, lh) : document.createTextNode(String(x.ledgerIndex)));
-      tr.appendChild(lt);
-      cell(tr, x.closeTimeUtc ? x.closeTimeUtc + " UTC" : "\\u2014", x.closeTimeUtc ? "" : "muted");
+      // Column order: Identifier, Ledger, Date (UTC), Type, Transaction, Result.
       // Identifier: which tracked issuance(s) this transaction relates to. The
       // label is the MPT ticker/short id or IOU currency; the full id/issuer is
       // the hover tooltip. Comma-separated when a tx touches more than one.
@@ -338,6 +334,11 @@ export const DASHBOARD_HTML = `<!doctype html>
         });
       } else { idt.textContent = "\\u2014"; idt.className = "mono muted"; }
       tr.appendChild(idt);
+      var lt = document.createElement("td"); lt.className = "mono";
+      var lh = exUrl("ledgers", x.ledgerIndex);
+      lt.appendChild(lh ? exLink(x.ledgerIndex, lh) : document.createTextNode(String(x.ledgerIndex)));
+      tr.appendChild(lt);
+      cell(tr, x.closeTimeUtc ? x.closeTimeUtc + " UTC" : "\\u2014", x.closeTimeUtc ? "" : "muted");
       cell(tr, x.txType);
       var ht = document.createElement("td"); ht.className = "mono";
       var hh = exUrl("transactions", x.hash);
