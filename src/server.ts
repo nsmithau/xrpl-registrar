@@ -412,15 +412,24 @@ function shutdown(signal: string): void {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`\nReceived ${signal}, shutting down…`);
+  // Watchdog: never let a slow/stuck cleanup (e.g. an upstream socket that won't
+  // close) hang the process — matters for `tsx watch`, which SIGTERMs to restart
+  // and waits for the old process to exit. Unref'd so it doesn't keep us alive.
+  setTimeout(() => process.exit(0), 4000).unref();
   void (async () => {
-    if (rediscoverTimer) clearInterval(rediscoverTimer);
-    tail.stop();
-    if (tailSource) await tailSource.close();
-    await server.stop();
-    if (adminServer) await adminServer.stop();
-    await client.disconnect();
-    await db.close();
-    process.exit(0);
+    try {
+      if (rediscoverTimer) clearInterval(rediscoverTimer);
+      tail.stop();
+      if (tailSource) await tailSource.close();
+      await server.stop();
+      if (adminServer) await adminServer.stop();
+      await client.disconnect();
+      await db.close();
+    } catch (err) {
+      log.error("shutdown cleanup failed", { error: String(err) });
+    } finally {
+      process.exit(0);
+    }
   })();
 }
 process.on("SIGINT", () => shutdown("SIGINT"));

@@ -84,7 +84,13 @@ export class ArchiveServer {
   }
 
   async stop(): Promise<void> {
+    // Drop live WebSocket and idle keep-alive connections so close() resolves
+    // promptly. Without this, http.close() blocks until every client disconnects
+    // — which stalls a `tsx watch` restart whenever the dashboard or a WS client
+    // is connected.
+    for (const ws of this.#wss.clients) ws.terminate();
     await new Promise<void>((resolve) => this.#wss.close(() => resolve()));
+    this.#http.closeAllConnections();
     await new Promise<void>((resolve, reject) =>
       this.#http.close((err) => (err ? reject(err) : resolve())),
     );

@@ -89,6 +89,9 @@ export class AdminServer {
   }
 
   stop(): Promise<void> {
+    // Drop idle keep-alive connections (e.g. the dashboard's) so close()
+    // resolves promptly rather than blocking a `tsx watch` restart.
+    this.#http.closeAllConnections();
     return new Promise((resolve, reject) =>
       this.#http.close((err) => (err ? reject(err) : resolve())),
     );
