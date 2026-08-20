@@ -304,7 +304,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     var pct = total ? Math.round((bf.completed / total) * 100) : 0;
     bfTd.innerHTML = '<span class="bar"><span style="width:' + pct + '%"></span></span>';
     var t = document.createElement("span");
-    t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " tx" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
+    t.textContent = bf.completed + "/" + total + " jobs, " + bf.totalTx + " ingested" + (bf.failed ? (" \\u00b7 " + bf.failed + " failed") : "");
     bfTd.appendChild(t); tr.appendChild(bfTd);
     return tr;
   }
