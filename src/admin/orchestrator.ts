@@ -26,7 +26,10 @@ async function fetchMptTicker(client: ClioReader, mptIssuanceId: string): Promis
     });
     const metaHex = asString(res.result.node?.MPTokenMetadata);
     if (!metaHex) return null;
-    const parsed = JSON.parse(new TextDecoder().decode(hexToBytes(metaHex))) as Record<string, unknown>;
+    const parsed = JSON.parse(new TextDecoder().decode(hexToBytes(metaHex))) as Record<
+      string,
+      unknown
+    >;
     const ticker = parsed["t"];
     return typeof ticker === "string" && ticker.length > 0 && ticker.length <= 32 ? ticker : null;
   } catch {
@@ -39,6 +42,10 @@ export interface IngestSummary {
   readonly discovered: number;
   readonly jobsProcessed: number;
   readonly deltaRows: number;
+  /** The highest ledger the issuer sweep covered, or null if the backfill was
+   * skipped (already completed). Callers use it to heal the small gap that can
+   * open while a long sweep runs and the live tail advances ahead of it. */
+  readonly highWater: number | null;
 }
 
 /** The transport the orchestrator needs: governed reads plus connect/disconnect
@@ -66,7 +73,10 @@ export async function ingestIssuance(
   logger: Logger = nullLogger,
   activity: ActivityTracker = noopActivityTracker,
 ): Promise<IngestSummary> {
-  const label = issuance.kind === "mpt" ? issuance.mptIssuanceId : `${issuance.currency}/${issuance.issuerAccount}`;
+  const label =
+    issuance.kind === "mpt"
+      ? issuance.mptIssuanceId
+      : `${issuance.currency}/${issuance.issuerAccount}`;
   const issuer = issuerOf(issuance);
   const fromLedger = issuance.backfillFromLedger > 0 ? issuance.backfillFromLedger : 0;
 
@@ -91,13 +101,15 @@ export async function ingestIssuance(
   const job = (await jobs.getByAccount(issuance.id, issuer))!;
 
   let processed = 0;
+  let highWater: number | null = null;
   if (job.status !== "completed") {
-    await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
+    const result = await activity.track("backfill", `backfilling ${label ?? issuance.id}`, () =>
       runIssuerBackfill(client, db, trackedIssuance(issuance), job, {
         logger,
         deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
       }),
     );
+    highWater = result.highWater;
     processed = 1;
   }
 
@@ -117,5 +129,5 @@ export async function ingestIssuance(
     deltaRows,
   });
 
-  return { strategy: "issuer_sweep", discovered, jobsProcessed: processed, deltaRows };
+  return { strategy: "issuer_sweep", discovered, jobsProcessed: processed, deltaRows, highWater };
 }

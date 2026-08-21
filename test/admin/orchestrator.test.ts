@@ -35,7 +35,13 @@ describe("ingestIssuance", () => {
     const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
 
     const summary = await ingestIssuance(client, db, iss);
-    expect(summary).toMatchObject({ strategy: "issuer_sweep", discovered: 0, deltaRows: 0 });
+    // highWater 0: the sweep ran but saw no in-scope tx (starts at fromLedger 0).
+    expect(summary).toMatchObject({
+      strategy: "issuer_sweep",
+      discovered: 0,
+      deltaRows: 0,
+      highWater: 0,
+    });
 
     // Swept the issuer decoded from the MPT id, exactly once — not one call per
     // holder and not a request per ledger.
@@ -84,8 +90,10 @@ describe("ingestIssuance", () => {
     const iss = await new AdminApi(db).registerIssuance({ kind: "mpt", mptIssuanceId: MPT });
 
     await ingestIssuance(client, db, iss);
-    await ingestIssuance(client, db, iss); // job already completed → skipped
+    const second = await ingestIssuance(client, db, iss); // job already completed → skipped
 
     expect(sweeps).toBe(1);
+    // Skipped run reports no sweep and no high-water (so no post-backfill heal).
+    expect(second).toMatchObject({ jobsProcessed: 0, highWater: null });
   });
 });

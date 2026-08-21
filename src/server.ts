@@ -43,6 +43,7 @@ import {
   runIssuerBackfill,
   trackedIssuance,
   type DecodedMeta,
+  type IssuanceRecord,
   type TrackedIssuance,
 } from "./index.js";
 
@@ -370,6 +371,35 @@ console.log(
   `  curl -s http://127.0.0.1:${bound} -H 'content-type: application/json' \\\n` +
     `    -d '{"method":"mpt_holders","params":[{"mpt_issuance_id":"<mpt_issuance_id>","api_version":2}]}'`,
 );
+// After a new issuance's backfill, heal the window that opened while the sweep
+// ran: the live tail advanced but was not yet tracking this issuance, so its
+// transactions between the sweep's high-water and the tail's current ledger were
+// not ingested. A bounded issuer sweep over that (usually small) range catches
+// them. Idempotent, so overlap with the tail's forward ingest is harmless.
+async function healPostBackfill(issuance: IssuanceRecord, highWater: number | null): Promise<void> {
+  if (highWater === null) return;
+  const issuer = issuerOf(issuance);
+  if (!issuer) return;
+  const { rows } = await db.query<{ hi: number | string | null }>(
+    "SELECT max(ledger_index) AS hi FROM ledgers",
+  );
+  const current = rows[0]?.hi != null ? Number(rows[0]!.hi) : 0;
+  if (current <= highWater) return; // the tail did not advance past the sweep
+  const range = { fromLedger: highWater, toLedger: current };
+  await activity.track("backfill", `post-backfill heal ${issuance.id}`, () =>
+    backfillGap(pagingClient, db, [issuer], range, tracked, {
+      logger: log,
+      deriveDeltas,
+      onEntry: (meta) => onStreamTransaction(meta),
+    }),
+  );
+  log.info("post-backfill gap heal", {
+    issuanceId: issuance.id,
+    fromLedger: highWater,
+    toLedger: current,
+  });
+}
+
 // Admin port (authenticated), enabled when ADMIN_TOKEN is set. Registering an
 // issuance here triggers discovery + backfill + derivation in the background.
 let adminServer: AdminServer | undefined;
@@ -385,12 +415,17 @@ if (config.admin.token) {
     logger: log,
     onRegistered: (issuance) => {
       ingestIssuance(pagingClient, db, issuance, log, activity)
-        .then(async () => {
+        .then(async (summary) => {
           // Track the new issuance (for tail delta derivation + streaming
           // discovery), and bring its accounts and issuer into the subscription.
           await refreshTracked();
           await seedInScope();
           if (tailSource) await tailSource.setAccounts(await subscriptionSet());
+          // Close the window that opened while the (possibly long) backfill ran:
+          // the live tail advanced but was not yet tracking this issuance, so any
+          // of its transactions between the sweep's high-water and now weren't
+          // ingested. A bounded heal over that small range catches them.
+          await healPostBackfill(issuance, summary.highWater);
         })
         .catch((err: unknown) => log.error("background ingest failed", { error: String(err) }));
     },
