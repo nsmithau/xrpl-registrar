@@ -199,6 +199,30 @@
               }
             }
           }
+        },
+        {
+          "name": "Delete issuance",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{adminUrl}}/admin/issuances/{{issuanceId}}",
+              "host": ["{{adminUrl}}"],
+              "path": ["admin", "issuances", "{{issuanceId}}"]
+            },
+            "description": "Delete an issuance and purge the data exclusively its own (deltas, jobs, and the accounts/transactions no other issuance references), then VACUUM to reclaim disk. Data shared with another issuance is retained. The deliberate exception to the archive's append-only design (ADR-018) — for a mistaken registration or an abandoned mega-issuer sweep, not regulatory redaction. While a delete + vacuum runs, other mutating admin calls return 409. Returns a summary { accountsRemoved, transactionsRemoved, deltasRemoved, compacted }."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ok (200) or not found (404)', () => pm.expect([200, 404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

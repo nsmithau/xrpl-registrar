@@ -83,12 +83,15 @@ curl -s http://127.0.0.1:51235/admin/issuances \
 For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`RLUSD`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `RLUSD` and `524C555344…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
 
 ```
-GET   /admin/issuances            # list configured issuances
-GET   /admin/issuances/{id}       # status: accounts, backfill progress, coverage, last reconciliation
-PATCH /admin/issuances/{id}       # {"enabled": false} to pause
+GET    /admin/issuances           # list configured issuances
+GET    /admin/issuances/{id}      # status: accounts, backfill progress, coverage, last reconciliation
+PATCH  /admin/issuances/{id}      # {"enabled": false} to pause
+DELETE /admin/issuances/{id}      # delete an issuance, purge its exclusive data, and compact
 ```
 
 The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. Registration is Admin-API-only by design; the operator dashboard (served at the admin port root) is read-only.
+
+`DELETE /admin/issuances/{id}` is the deliberate exception to append-only ([ADR-018](docs/adr/adr-018-delete-issuance.md)): it removes an issuance (e.g. one registered by mistake, or a mega-issuer sweep to abandon) and purges the data that is **exclusively** its own — its deltas, jobs, and the accounts/transactions no other issuance references — then `VACUUM`s to reclaim disk. Data shared with another issuance is retained. While a delete + vacuum runs, other mutating admin calls get `409` (reads stay available). The response summarises what was removed.
 
 ## Querying the archive (read API)
 

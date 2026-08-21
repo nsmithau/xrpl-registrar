@@ -394,6 +394,17 @@ if (config.admin.token) {
         })
         .catch((err: unknown) => log.error("background ingest failed", { error: String(err) }));
     },
+    onDeleted: (issuanceId) => {
+      // Drop the removed issuance from the tail's tracked set and subscription,
+      // so it stops deriving deltas for it (its rows are gone) and unsubscribes
+      // holders now out of scope.
+      void (async () => {
+        await refreshTracked();
+        await seedInScope();
+        if (tailSource) await tailSource.setAccounts(await subscriptionSet());
+        log.info("issuance deleted", { issuanceId });
+      })().catch((err: unknown) => log.error("post-delete refresh failed", { error: String(err) }));
+    },
   });
   const adminBound = await adminServer.start();
   console.log(`  Admin API    : http://127.0.0.1:${adminBound}/admin/issuances (Bearer token)`);

@@ -5,6 +5,7 @@ import { decodeMeta } from "../reconcile/incremental.js";
 import { normalizeCurrency } from "../xrpl/currency.js";
 
 import type { ActivityReport, ActivitySource } from "./activity.js";
+import { issuerOf } from "./orchestrator.js";
 import type { CloseTimeFiller } from "../api/ledgerTime.js";
 
 export interface RegisterMptIssuance {
@@ -44,6 +45,20 @@ export interface BackfillSummary {
   readonly completed: number;
   readonly failed: number;
   readonly totalTx: number;
+}
+
+/** What a delete removed. Only rows *exclusive* to the deleted issuance are
+ * removed; anything another issuance still references is retained. */
+export interface DeleteSummary {
+  readonly issuanceId: number;
+  /** Accounts that were in scope for this issuance and no other (plus its issuer
+   * when unused elsewhere), removed along with their coverage and jobs. */
+  readonly accountsRemoved: number;
+  /** Transactions left unreferenced by any remaining account or delta. */
+  readonly transactionsRemoved: number;
+  readonly deltasRemoved: number;
+  /** Whether the post-delete VACUUM (space reclaim) succeeded. */
+  readonly compacted: boolean;
 }
 
 export interface IssuanceStatus {
@@ -317,6 +332,114 @@ export class AdminApi {
     if ((await this.#issuances.getById(id)) === null) return false;
     await this.#issuances.setEnabled(id, enabled);
     return true;
+  }
+
+  /**
+   * Delete an issuance and purge the data that is exclusively its own, then
+   * compact the database.
+   *
+   * The archive is append-only by design ([ADR-018]); this is the deliberate
+   * exception (e.g. an issuance registered by mistake, or a mega-issuer sweep to
+   * abandon). Because transactions and accounts are shared across issuances
+   * (sibling MPTs, multi-issuance holders), it removes only rows *exclusive* to
+   * this issuance and never data another issuance still needs:
+   * - its `balance_deltas`, `backfill_job`, `reconciliation_run`, `account_issuance`;
+   * - accounts in scope for this issuance and no other (plus its issuer account
+   *   when no other issuance uses it), with their `coverage`/jobs/`account_transactions`;
+   * - transactions thereby left unreferenced by any remaining account or delta.
+   * A transaction reachable from a shared issuer or another issuance's accounts
+   * is retained. Runs in one transaction, then `VACUUM (FULL)` to reclaim disk.
+   *
+   * Returns null if the issuance does not exist.
+   */
+  async deleteIssuance(id: number): Promise<DeleteSummary | null> {
+    const target = await this.#issuances.getById(id);
+    if (target === null) return null;
+
+    // Defensive: never let a malformed stored MPT id (issuerOf decodes it) block
+    // the purge — fall back to "" (no issuer account to remove).
+    const safeIssuer = (i: IssuanceRecord): string => {
+      try {
+        return issuerOf(i);
+      } catch {
+        return "";
+      }
+    };
+    const targetIssuer = safeIssuer(target);
+    // The issuer account is in `accounts` but not `account_issuance`; it is
+    // removable only when no other issuance uses it (as issuer or holder).
+    const others = (await this.#issuances.list()).filter((i) => i.id !== id);
+    const issuerIsAnotherIssuer =
+      targetIssuer !== "" && others.some((o) => safeIssuer(o) === targetIssuer);
+
+    const removed = await this.#db.transaction(async (t) => {
+      // Accounts in scope for this issuance and no other → fully removable.
+      const { rows: excl } = await t.query<{ address: string }>(
+        `SELECT address FROM account_issuance WHERE issuance_id = $1
+         EXCEPT
+         SELECT address FROM account_issuance WHERE issuance_id <> $1`,
+        [id],
+      );
+      const removable = new Set(excl.map((r) => r.address));
+      if (targetIssuer && !issuerIsAnotherIssuer) {
+        const heldElsewhere = await t.query(
+          "SELECT 1 FROM account_issuance WHERE address = $1 AND issuance_id <> $2 LIMIT 1",
+          [targetIssuer, id],
+        );
+        if (heldElsewhere.rows.length === 0) removable.add(targetIssuer);
+      }
+      const addrs = [...removable];
+
+      // Rows keyed by this issuance.
+      const deltas = await t.query("DELETE FROM balance_deltas WHERE issuance_id = $1", [id]);
+      await t.query("DELETE FROM reconciliation_run WHERE issuance_id = $1", [id]);
+      await t.query("DELETE FROM backfill_job WHERE issuance_id = $1", [id]);
+      await t.query("DELETE FROM account_issuance WHERE issuance_id = $1", [id]);
+
+      // Remove the now-orphaned exclusive accounts and everything referencing
+      // them (FK order: dependents before the accounts row).
+      let accountsRemoved = 0;
+      if (addrs.length > 0) {
+        await t.query("DELETE FROM account_transactions WHERE address = ANY($1::text[])", [addrs]);
+        await t.query("DELETE FROM coverage WHERE address = ANY($1::text[])", [addrs]);
+        await t.query("DELETE FROM backfill_job WHERE address = ANY($1::text[])", [addrs]);
+        await t.query("DELETE FROM balance_deltas WHERE address = ANY($1::text[])", [addrs]);
+        const acc = await t.query("DELETE FROM accounts WHERE address = ANY($1::text[])", [addrs]);
+        accountsRemoved = acc.affectedRows;
+      }
+
+      // Transactions no longer referenced by any account or delta are dead.
+      const tx = await t.query(
+        `DELETE FROM transactions t
+         WHERE NOT EXISTS (SELECT 1 FROM account_transactions a WHERE a.hash = t.hash)
+           AND NOT EXISTS (SELECT 1 FROM balance_deltas b WHERE b.hash = t.hash)`,
+      );
+
+      await t.query("DELETE FROM issuances WHERE id = $1", [id]);
+      return {
+        accountsRemoved,
+        transactionsRemoved: tx.affectedRows,
+        deltasRemoved: deltas.affectedRows,
+      };
+    });
+
+    const compacted = await this.#compact();
+    return { issuanceId: id, ...removed, compacted };
+  }
+
+  /** Reclaim disk after a delete. VACUUM cannot run in a transaction block, so
+   * this runs after the delete commits. Best-effort: FULL reclaims to the OS,
+   * plain VACUUM is the fallback; a failure does not undo the delete. */
+  async #compact(): Promise<boolean> {
+    for (const stmt of ["VACUUM (FULL)", "VACUUM"]) {
+      try {
+        await this.#db.exec(stmt);
+        return true;
+      } catch {
+        // try the next form
+      }
+    }
+    return false;
   }
 
   async #backfillSummary(id: number): Promise<BackfillSummary> {

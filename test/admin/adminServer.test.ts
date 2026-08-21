@@ -15,7 +15,10 @@ describe("AdminServer", () => {
   let activity: ActivityRegistry;
   const registered: IssuanceRecord[] = [];
 
-  const auth = (extra: Record<string, string> = {}) => ({ authorization: `Bearer ${TOKEN}`, ...extra });
+  const auth = (extra: Record<string, string> = {}) => ({
+    authorization: `Bearer ${TOKEN}`,
+    ...extra,
+  });
 
   beforeAll(async () => {
     db = await openArchiveDatabase();
@@ -37,7 +40,9 @@ describe("AdminServer", () => {
 
   it("rejects unauthenticated requests", async () => {
     expect((await fetch(`${base}/admin/issuances`)).status).toBe(401);
-    const wrong = await fetch(`${base}/admin/issuances`, { headers: { authorization: "Bearer nope" } });
+    const wrong = await fetch(`${base}/admin/issuances`, {
+      headers: { authorization: "Bearer nope" },
+    });
     expect(wrong.status).toBe(401);
   });
 
@@ -109,7 +114,9 @@ describe("AdminServer", () => {
       body: JSON.stringify({ enabled: false }),
     });
     expect(patch.status).toBe(200);
-    const after = (await (await fetch(`${base}/admin/issuances/${id}`, { headers: auth() })).json()) as {
+    const after = (await (
+      await fetch(`${base}/admin/issuances/${id}`, { headers: auth() })
+    ).json()) as {
       issuance: IssuanceRecord;
     };
     expect(after.issuance.enabled).toBe(false);
@@ -117,8 +124,13 @@ describe("AdminServer", () => {
 
   it("reports background activity in the list response for the dashboard", async () => {
     activity.begin("backfill", "backfilling rX");
-    const running = (await (await fetch(`${base}/admin/issuances`, { headers: auth() })).json()) as {
-      activity: { backfill: { running: boolean; detail: string | null }; discovery: { running: boolean } };
+    const running = (await (
+      await fetch(`${base}/admin/issuances`, { headers: auth() })
+    ).json()) as {
+      activity: {
+        backfill: { running: boolean; detail: string | null };
+        discovery: { running: boolean };
+      };
     };
     expect(running.activity.backfill.running).toBe(true);
     expect(running.activity.backfill.detail).toBe("backfilling rX");
@@ -144,5 +156,62 @@ describe("AdminServer", () => {
   it("404s unknown ids and paths", async () => {
     expect((await fetch(`${base}/admin/issuances/9999`, { headers: auth() })).status).toBe(404);
     expect((await fetch(`${base}/admin/other`, { headers: auth() })).status).toBe(404);
+  });
+
+  it("deletes an issuance over HTTP and 404s an unknown id", async () => {
+    const reg = await fetch(`${base}/admin/issuances`, {
+      method: "POST",
+      headers: auth({ "content-type": "application/json" }),
+      body: JSON.stringify({ kind: "iou", currency: "USD", issuer: "rHttpDel" }),
+    });
+    const { issuance } = (await reg.json()) as { issuance: { id: number } };
+    const del = await fetch(`${base}/admin/issuances/${issuance.id}`, {
+      method: "DELETE",
+      headers: auth(),
+    });
+    expect(del.status).toBe(200);
+    const summary = (await del.json()) as { issuanceId: number; compacted: boolean };
+    expect(summary.issuanceId).toBe(issuance.id);
+    expect(summary.compacted).toBe(true);
+    expect(
+      (await fetch(`${base}/admin/issuances/999999`, { method: "DELETE", headers: auth() })).status,
+    ).toBe(404);
+  });
+
+  it("rejects other mutations with 409 while a delete + vacuum is in progress", async () => {
+    // A dedicated server whose delete hangs on a gate, so the maintenance lock
+    // stays held while we fire a concurrent registration.
+    const db2 = await openArchiveDatabase();
+    const api2 = new AdminApi(db2);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    api2.deleteIssuance = async (id: number) => {
+      await gate;
+      return {
+        issuanceId: id,
+        accountsRemoved: 0,
+        transactionsRemoved: 0,
+        deltasRemoved: 0,
+        compacted: true,
+      };
+    };
+    const srv = new AdminServer({ api: api2, token: TOKEN, port: 0 });
+    const p = await srv.start();
+    const b2 = `http://127.0.0.1:${p}`;
+    try {
+      const del = fetch(`${b2}/admin/issuances/1`, { method: "DELETE", headers: auth() });
+      await new Promise((r) => setTimeout(r, 30)); // let the delete acquire the lock
+      const reg = await fetch(`${b2}/admin/issuances`, {
+        method: "POST",
+        headers: auth({ "content-type": "application/json" }),
+        body: JSON.stringify({ kind: "mpt", mptIssuanceId: "MPT_BLOCKED" }),
+      });
+      expect(reg.status).toBe(409);
+      release();
+      expect((await del).status).toBe(200);
+    } finally {
+      await srv.stop();
+      await db2.close();
+    }
   });
 });

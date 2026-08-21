@@ -374,4 +374,90 @@ describe("AdminApi", () => {
     expect(await api.setEnabled(9999, true)).toBe(false);
     expect(await api.getIssuance(9999)).toBeNull();
   });
+
+  const count = async (sql: string): Promise<number> =>
+    Number((await db.query<{ n: number | string }>(sql)).rows[0]!.n);
+
+  it("deletes an issuance, purges its exclusive data, and compacts", async () => {
+    const iss = await api.registerIssuance({ kind: "iou", currency: "USD", issuer: "rDelIssuer" });
+    await new AccountRepository(db).recordDiscovered(iss.id, [
+      { address: "rDelHolder", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await new TransactionRepository(db).ingest({
+      hash: "DTX",
+      ledgerIndex: 100,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rDelHolder"],
+    });
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('DTX','rDelHolder',$1,'10')",
+      [iss.id],
+    );
+    await db.query(
+      "INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ('rDelHolder',100,200,'t')",
+    );
+
+    const summary = await api.deleteIssuance(iss.id);
+    expect(summary).toMatchObject({
+      issuanceId: iss.id,
+      accountsRemoved: 1,
+      transactionsRemoved: 1,
+      deltasRemoved: 1,
+      compacted: true,
+    });
+    expect(await api.getIssuance(iss.id)).toBeNull();
+    expect(await count("SELECT count(*)::int AS n FROM transactions")).toBe(0);
+    expect(await count("SELECT count(*)::int AS n FROM accounts WHERE address='rDelHolder'")).toBe(
+      0,
+    );
+    expect(await count("SELECT count(*)::int AS n FROM balance_deltas")).toBe(0);
+    expect(await count("SELECT count(*)::int AS n FROM coverage WHERE address='rDelHolder'")).toBe(
+      0,
+    );
+  });
+
+  it("retains data shared with another issuance when one is deleted", async () => {
+    const issuances = new IssuanceRepository(db);
+    const a = await issuances.create({ kind: "iou", currency: "USD", issuerAccount: "rIssuerA" });
+    const b = await issuances.create({ kind: "iou", currency: "EUR", issuerAccount: "rIssuerB" });
+    const accounts = new AccountRepository(db);
+    await accounts.recordDiscovered(a.id, [
+      { address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await accounts.recordDiscovered(b.id, [
+      { address: "rShared", discoveredVia: "issuer_sweep", firstAcquisitionLedger: 100 },
+    ]);
+    await new TransactionRepository(db).ingest({
+      hash: "SHTX",
+      ledgerIndex: 100,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rShared"],
+    });
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('SHTX','rShared',$1,'10')",
+      [a.id],
+    );
+    await db.query(
+      "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ('SHTX','rShared',$1,'20')",
+      [b.id],
+    );
+
+    const summary = await api.deleteIssuance(a.id);
+    // rShared and SHTX are still used by B → retained; only A's delta is gone.
+    expect(summary).toMatchObject({ accountsRemoved: 0, transactionsRemoved: 0, deltasRemoved: 1 });
+    expect(await api.getIssuance(a.id)).toBeNull();
+    expect((await api.getIssuance(b.id))!.transactions).toBe(1);
+    expect(await count("SELECT count(*)::int AS n FROM accounts WHERE address='rShared'")).toBe(1);
+    expect(await count("SELECT count(*)::int AS n FROM transactions WHERE hash='SHTX'")).toBe(1);
+  });
+
+  it("returns null when deleting an unknown issuance", async () => {
+    expect(await api.deleteIssuance(99999)).toBeNull();
+  });
 });

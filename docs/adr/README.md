@@ -27,3 +27,4 @@ Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted.
 | [ADR-015](adr-015-governor-settings-from-load-probing.md)                   | Concurrency governor settings, tuned by load-probing public Clio                      |
 | [ADR-016](adr-016-http-transport-for-backfill-paging.md)                    | Page `account_tx` over HTTP JSON-RPC for backfill; WS only for the tail               |
 | [ADR-017](adr-017-gateway-balances-for-iou-issuers.md)                      | Serve `gateway_balances` for IOU issuers — scoped and fail-closed                     |
+| [ADR-018](adr-018-delete-issuance.md)                                       | Deletable issuances — a bounded exception to append-only                              |

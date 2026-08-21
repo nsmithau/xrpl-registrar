@@ -16,6 +16,9 @@ export interface AdminServerOptions {
   readonly host?: string;
   /** Called after a successful registration — wire background ingestion here. */
   readonly onRegistered?: (issuance: IssuanceRecord) => void;
+  /** Called after a successful deletion — refresh tracked issuances and the
+   * live-tail subscription so the removed issuance is dropped. */
+  readonly onDeleted?: (issuanceId: number) => void;
   /** Dashboard session lifetime in ms (login cookie). Default 12h. */
   readonly sessionTtlMs?: number;
   /** Add `Secure` to the session cookie — set true when terminating TLS in
@@ -57,7 +60,10 @@ export class AdminServer {
   readonly #port: number;
   readonly #host: string;
   readonly #onRegistered: ((issuance: IssuanceRecord) => void) | undefined;
+  readonly #onDeleted: ((issuanceId: number) => void) | undefined;
   readonly #logger: Logger;
+  /** Set while a delete + vacuum runs; blocks other mutating requests. */
+  #maintenance = false;
   readonly #http: Server;
   readonly #sessionTtlMs: number;
   readonly #secureCookie: boolean;
@@ -73,6 +79,7 @@ export class AdminServer {
     this.#port = options.port ?? 51235;
     this.#host = options.host ?? "127.0.0.1";
     this.#onRegistered = options.onRegistered;
+    this.#onDeleted = options.onDeleted;
     this.#sessionTtlMs = options.sessionTtlMs ?? 12 * 60 * 60 * 1000;
     this.#secureCookie = options.secureCookie ?? false;
     this.#explorerBaseUrl = options.explorerBaseUrl;
@@ -186,6 +193,18 @@ export class AdminServer {
       }
       const id = parts[2] !== undefined ? Number(parts[2]) : undefined;
 
+      // A delete purges rows and VACUUMs the database (an exclusive, potentially
+      // slow operation). Reject other mutating calls while it runs so a
+      // concurrent registration/toggle can't race the purge or the vacuum. Reads
+      // stay available; the auth boundary (login/logout) is handled earlier.
+      const mutating = req.method === "POST" || req.method === "PATCH" || req.method === "DELETE";
+      if (mutating && this.#maintenance) {
+        return send(res, 409, {
+          error: "maintenanceInProgress",
+          message: "an issuance deletion is in progress; retry shortly",
+        });
+      }
+
       if (req.method === "GET" && id === undefined) {
         return send(res, 200, {
           issuances: await this.#api.listIssuances(),
@@ -215,6 +234,18 @@ export class AdminServer {
         return ok
           ? send(res, 200, { id, enabled: body.enabled })
           : send(res, 404, { error: "notFound" });
+      }
+      if (req.method === "DELETE" && id !== undefined) {
+        // Hold the maintenance lock for the whole delete + vacuum.
+        this.#maintenance = true;
+        try {
+          const summary = await this.#api.deleteIssuance(id);
+          if (!summary) return send(res, 404, { error: "notFound" });
+          this.#onDeleted?.(id);
+          return send(res, 200, summary);
+        } finally {
+          this.#maintenance = false;
+        }
       }
       return send(res, 405, { error: "methodNotAllowed" });
     } catch (err) {
