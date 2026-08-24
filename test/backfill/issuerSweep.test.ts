@@ -4,6 +4,7 @@ import type { ClioRequest } from "../../src/clio/types.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
 import { runIssuerBackfill, type MappedEntry } from "../../src/backfill/issuerSweep.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Queryable } from "../../src/db/database.js";
 import { BackfillJobRepository, type BackfillJob } from "../../src/db/repositories/backfillJobs.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { trackedIssuance } from "../../src/reconcile/index.js";
@@ -107,6 +108,45 @@ describe("runIssuerBackfill", () => {
     expect(cov.rows).toEqual([
       { address: "rA", lo: 50, hi: 200 },
       { address: ISSUER, lo: 50, hi: 200 },
+    ]);
+  });
+
+  it("anchors the coverage floor to the earliest ingested data, not the configured from-ledger", async () => {
+    // The job is configured to sweep from ledger 50, but the only in-scope
+    // balance data the sweep actually produces starts at ledger 300 (as if a
+    // resume/churn left everything below 300 missing). Coverage must report the
+    // honest floor (300), not over-claim completeness from 50.
+    const { tracked, job } = await setup(db, 50);
+    const client = fakeReader((req: ClioRequest) =>
+      req.command === "account_tx"
+        ? {
+            transactions: [
+              { tx_blob: "H1", meta_blob: "rA", ledger_index: 200 },
+              { tx_blob: "H2", meta_blob: "rB", ledger_index: 300 },
+            ],
+          }
+        : {},
+    );
+
+    // Only the ledger-300 transaction leaves a balance delta; ledger 200 is a
+    // scanned-but-empty tx, so the archive's real data floor is 300.
+    const deriveDeltas = async (t: Queryable, hash: string): Promise<void> => {
+      if (hash !== "H2") return;
+      await t.query(
+        "INSERT INTO balance_deltas (hash, address, issuance_id, delta) VALUES ($1, $2, $3, $4)",
+        [hash, "rB", tracked.id, "1"],
+      );
+    };
+
+    await runIssuerBackfill(client, db, tracked, job, { mapEntry, deriveDeltas });
+
+    const cov = await db.query<{ address: string; lo: number | string; hi: number | string }>(
+      "SELECT address, min(from_ledger) AS lo, max(to_ledger) AS hi FROM coverage GROUP BY address ORDER BY address",
+    );
+    expect(cov.rows).toEqual([
+      { address: "rA", lo: 300, hi: 300 },
+      { address: "rB", lo: 300, hi: 300 },
+      { address: ISSUER, lo: 300, hi: 300 },
     ]);
   });
 

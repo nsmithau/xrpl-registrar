@@ -152,10 +152,19 @@ await verifyEndpoint();
 // as transactions land — refreshed whenever an issuance is registered, so
 // balance_deltas stays current without a periodic full re-derivation.
 let tracked: TrackedIssuance[] = [];
+// Issuances whose delete has begun: excluded from `tracked` even if their row is
+// still present, so the tail stops deriving their deltas the instant a delete
+// starts and cannot re-add them (via a concurrent refresh) before the purge.
+const deleting = new Set<number>();
 const refreshTracked = async (): Promise<void> => {
-  tracked = (await new IssuanceRepository(db).list()).map(trackedIssuance);
+  tracked = (await new IssuanceRepository(db).list())
+    .filter((i) => !deleting.has(i.id))
+    .map(trackedIssuance);
 };
 const deriveDeltas = deltaDeriver(() => tracked);
+// In-flight background ingest per issuance id, so a delete can drain the
+// backfill (and its post-backfill heal) before purging the issuance's rows.
+const inflightIngest = new Map<number, Promise<unknown>>();
 
 // Per-holder backfill scope filter: a discovered holder's account_tx also
 // carries its unrelated activity (offers, XRP, other tokens), so ingest only
@@ -430,7 +439,7 @@ if (config.admin.token) {
     ...(config.admin.explorerBaseUrl ? { explorerBaseUrl: config.admin.explorerBaseUrl } : {}),
     logger: log,
     onRegistered: (issuance) => {
-      ingestIssuance(pagingClient, db, issuance, log, activity)
+      const done = ingestIssuance(pagingClient, db, issuance, log, activity)
         .then(async (summary) => {
           // Track the new issuance (for tail delta derivation + streaming
           // discovery), and bring its accounts and issuer into the subscription.
@@ -444,16 +453,34 @@ if (config.admin.token) {
           await healPostBackfill(issuance, summary.highWater);
         })
         .catch((err: unknown) => log.error("background ingest failed", { error: String(err) }));
+      // Registered so a concurrent delete can drain it before purging.
+      inflightIngest.set(issuance.id, done);
+      void done.finally(() => inflightIngest.delete(issuance.id));
+    },
+    onBeforeDelete: async (issuanceId) => {
+      // Quiesce before the purge: stop the tail deriving this issuance now (and
+      // keep a concurrent refresh from re-adding it), then wait for any in-flight
+      // backfill + heal to finish, so nothing writes rows for an issuance being
+      // deleted underneath it (which would FK-fail once its row is gone).
+      deleting.add(issuanceId);
+      tracked = tracked.filter((i) => i.id !== issuanceId);
+      await inflightIngest.get(issuanceId); // already .catch-guarded; never throws
     },
     onDeleted: (issuanceId) => {
       // Drop the removed issuance from the tail's tracked set and subscription,
       // so it stops deriving deltas for it (its rows are gone) and unsubscribes
       // holders now out of scope.
       void (async () => {
-        await refreshTracked();
-        await seedInScope();
-        if (tailSource) await tailSource.setAccounts(await subscriptionSet());
-        log.info("issuance deleted", { issuanceId });
+        try {
+          await refreshTracked();
+          await seedInScope();
+          if (tailSource) await tailSource.setAccounts(await subscriptionSet());
+          log.info("issuance deleted", { issuanceId });
+        } finally {
+          // Row is gone from the DB now, so the guard is no longer needed to keep
+          // it out of `tracked`; release it so the id can be reused.
+          deleting.delete(issuanceId);
+        }
       })().catch((err: unknown) => log.error("post-delete refresh failed", { error: String(err) }));
     },
   });

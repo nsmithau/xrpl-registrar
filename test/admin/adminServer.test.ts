@@ -204,6 +204,47 @@ describe("AdminServer", () => {
     ).toBe(404);
   });
 
+  it("awaits onBeforeDelete (draining in-flight work) before it purges", async () => {
+    const db2 = await openArchiveDatabase();
+    const api2 = new AdminApi(db2);
+    const order: string[] = [];
+    let releaseDrain: () => void = () => {};
+    const drained = new Promise<void>((r) => (releaseDrain = r));
+    api2.deleteIssuance = async (id: number) => {
+      order.push("purge");
+      return {
+        issuanceId: id,
+        accountsRemoved: 0,
+        transactionsRemoved: 0,
+        deltasRemoved: 0,
+        compacted: true,
+      };
+    };
+    const srv = new AdminServer({
+      api: api2,
+      token: TOKEN,
+      port: 0,
+      onBeforeDelete: async () => {
+        order.push("beforeDelete");
+        await drained; // simulates waiting for an in-flight backfill to finish
+        order.push("drained");
+      },
+    });
+    const p = await srv.start();
+    const b2 = `http://127.0.0.1:${p}`;
+    try {
+      const del = fetch(`${b2}/admin/issuances/1`, { method: "DELETE", headers: auth() });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(order).toEqual(["beforeDelete"]); // purge has not run — still draining
+      releaseDrain();
+      expect((await del).status).toBe(200);
+      expect(order).toEqual(["beforeDelete", "drained", "purge"]);
+    } finally {
+      await srv.stop();
+      await db2.close();
+    }
+  });
+
   it("rejects other mutations with 409 while a delete + vacuum is in progress", async () => {
     // A dedicated server whose delete hangs on a gate, so the maintenance lock
     // stays held while we fire a concurrent registration.

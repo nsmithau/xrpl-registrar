@@ -192,8 +192,16 @@ async function recordHolder(t: Queryable, issuanceId: number, address: string, l
   );
 }
 
-/** Claim `[from, to]` coverage for every holder of the issuance plus the issuer:
- * the completed sweep saw all issuer activity across that range. */
+/** Claim coverage for every holder of the issuance plus the issuer: the
+ * completed sweep saw all issuer activity across the range.
+ *
+ * The upper bound is `to` (the sweep's high-water mark). The lower bound is the
+ * *honest* floor — the lowest ledger we actually hold in-scope data for — not
+ * the configured `from`. A sweep that resumed from a stale checkpoint (or a DB
+ * that lost its early rows to churn) would otherwise over-claim completeness
+ * from `from` while missing everything below its true starting point; anchoring
+ * the floor to real data makes coverage report where the archive actually
+ * begins, so a gap surfaces as low coverage rather than a silent wrong balance. */
 async function claimCoverage(
   t: Queryable,
   issuanceId: number,
@@ -201,6 +209,13 @@ async function claimCoverage(
   from: number,
   to: number,
 ): Promise<void> {
+  const floorRes = await t.query<{ lo: number | string | null }>(
+    `SELECT min(tx.ledger_index) AS lo FROM balance_deltas bd
+     JOIN transactions tx ON tx.hash = bd.hash WHERE bd.issuance_id = $1`,
+    [issuanceId],
+  );
+  const lo = floorRes.rows[0]?.lo;
+  from = lo === null || lo === undefined ? from : Math.max(from, Number(lo));
   const reason = `issuer sweep ${issuer} [${from},${to}]`;
   await t.query(
     `INSERT INTO coverage (address, from_ledger, to_ledger, reason)

@@ -16,6 +16,11 @@ export interface AdminServerOptions {
   readonly host?: string;
   /** Called after a successful registration — wire background ingestion here. */
   readonly onRegistered?: (issuance: IssuanceRecord) => void;
+  /** Called (and awaited) before the purge begins, while the maintenance lock is
+   * held — quiesce the issuance here: stop the live tail from deriving it and
+   * wait for any in-flight backfill to finish, so nothing writes rows for an
+   * issuance being deleted underneath it. */
+  readonly onBeforeDelete?: (issuanceId: number) => Promise<void> | void;
   /** Called after a successful deletion — refresh tracked issuances and the
    * live-tail subscription so the removed issuance is dropped. */
   readonly onDeleted?: (issuanceId: number) => void;
@@ -60,6 +65,7 @@ export class AdminServer {
   readonly #port: number;
   readonly #host: string;
   readonly #onRegistered: ((issuance: IssuanceRecord) => void) | undefined;
+  readonly #onBeforeDelete: ((issuanceId: number) => Promise<void> | void) | undefined;
   readonly #onDeleted: ((issuanceId: number) => void) | undefined;
   readonly #logger: Logger;
   /** Set while a delete + vacuum runs; blocks other mutating requests. */
@@ -79,6 +85,7 @@ export class AdminServer {
     this.#port = options.port ?? 51235;
     this.#host = options.host ?? "127.0.0.1";
     this.#onRegistered = options.onRegistered;
+    this.#onBeforeDelete = options.onBeforeDelete;
     this.#onDeleted = options.onDeleted;
     this.#sessionTtlMs = options.sessionTtlMs ?? 12 * 60 * 60 * 1000;
     this.#secureCookie = options.secureCookie ?? false;
@@ -248,6 +255,9 @@ export class AdminServer {
         // Hold the maintenance lock for the whole delete + vacuum.
         this.#maintenance = true;
         try {
+          // Quiesce first: stop the tail deriving this issuance and drain any
+          // in-flight backfill so the purge doesn't race concurrent writers.
+          await this.#onBeforeDelete?.(id);
           const summary = await this.#api.deleteIssuance(id);
           if (!summary) return send(res, 404, { error: "notFound" });
           this.#onDeleted?.(id);
