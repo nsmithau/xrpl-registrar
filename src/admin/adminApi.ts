@@ -160,6 +160,18 @@ export class AdminApi {
     return this.#issuances.list();
   }
 
+  /** A random sample of in-scope holder addresses of an issuance — for the
+   * balance smoke test (`pnpm verify`), which checks each holder's archived
+   * balance against chain. Capped so a caller can't request an unbounded set. */
+  async sampleHolders(id: number, limit = 10): Promise<string[]> {
+    const n = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const { rows } = await this.#db.query<{ address: string }>(
+      "SELECT address FROM account_issuance WHERE issuance_id = $1 ORDER BY random() LIMIT $2",
+      [id, n],
+    );
+    return rows.map((r) => r.address);
+  }
+
   /** Job progress for whatever issuances are being backfilled right now
    * (completed+failed / total, across issuances with in-flight jobs), or null
    * when nothing is backfilling — for the dashboard's live progress counter. */

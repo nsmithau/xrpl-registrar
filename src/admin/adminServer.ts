@@ -192,6 +192,7 @@ export class AdminServer {
         return send(res, 404, { error: "notFound" });
       }
       const id = parts[2] !== undefined ? Number(parts[2]) : undefined;
+      const sub = parts[3];
 
       // A delete purges rows and VACUUMs the database (an exclusive, potentially
       // slow operation). Reject other mutating calls while it runs so a
@@ -213,6 +214,14 @@ export class AdminServer {
           activity: this.#api.activitySnapshot(),
           backfillProgress: await this.#api.backfillProgress(),
           explorerBaseUrl: this.#explorerBaseUrl ?? null,
+        });
+      }
+      if (req.method === "GET" && id !== undefined && sub === "holders") {
+        // A random sample of holders — used by the balance smoke test so it can
+        // verify against a live server without opening the (single-writer) DB.
+        const raw = Number(url.searchParams.get("limit") ?? "10");
+        return send(res, 200, {
+          holders: await this.#api.sampleHolders(id, Number.isFinite(raw) ? raw : 10),
         });
       }
       if (req.method === "GET" && id !== undefined) {

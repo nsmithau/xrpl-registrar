@@ -184,13 +184,15 @@ pnpm lint
 pnpm build             # emit to dist/
 ```
 
-**Balance smoke test.** Against a populated archive, `pnpm verify` samples random holders of an issuance and checks each archive balance against the on-chain balance at a ledger (latest if unset) — a quick data-integrity/health check. Exits non-zero on any mismatch.
+**Balance smoke test.** `pnpm verify` samples random holders of an issuance and checks each archive balance against the on-chain balance at a ledger (latest if unset) — a quick data-integrity/health check that exits non-zero on any mismatch. It talks to a **running** server over HTTP (admin API for the holder sample, read API for `archive_balance_at`) plus upstream Clio for the on-chain balance — it does **not** open the database directly (the embedded store is single-writer, so a second opener would abort). Start the server first and set `ADMIN_TOKEN`.
 
 ```bash
 # ISSUANCE = numeric id | 48-hex MPT id | CURRENCY/ISSUER
 ISSUANCE="RLUSD/r<issuer>" SAMPLE=20 pnpm verify        # at the latest ledger
 ISSUANCE=1 LEDGER=20000000 pnpm verify                  # as of a past ledger
 ```
+
+`ADMIN_URL`/`READ_URL` default to the loopback admin/read ports; override them to check a remote deployment (tunnel the admin port — see [Deploying](#deploying-on-ubuntu)).
 
 ## Roadmap
 

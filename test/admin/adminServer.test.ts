@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActivityRegistry } from "../../src/admin/activity.js";
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { AdminServer } from "../../src/admin/adminServer.js";
+import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import type { IssuanceRecord } from "../../src/db/repositories/issuances.js";
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 
@@ -156,6 +157,31 @@ describe("AdminServer", () => {
   it("404s unknown ids and paths", async () => {
     expect((await fetch(`${base}/admin/issuances/9999`, { headers: auth() })).status).toBe(404);
     expect((await fetch(`${base}/admin/other`, { headers: auth() })).status).toBe(404);
+  });
+
+  it("samples random holders of an issuance (for the balance smoke test)", async () => {
+    const reg = await fetch(`${base}/admin/issuances`, {
+      method: "POST",
+      headers: auth({ "content-type": "application/json" }),
+      body: JSON.stringify({ kind: "iou", currency: "USD", issuer: "rHoldersIss" }),
+    });
+    const { issuance } = (await reg.json()) as { issuance: { id: number } };
+    await new AccountRepository(db).recordDiscovered(
+      issuance.id,
+      ["rHa", "rHb", "rHc"].map((address) => ({
+        address,
+        discoveredVia: "issuer_sweep" as const,
+        firstAcquisitionLedger: 1,
+      })),
+    );
+
+    const res = await fetch(`${base}/admin/issuances/${issuance.id}/holders?limit=2`, {
+      headers: auth(),
+    });
+    expect(res.status).toBe(200);
+    const { holders } = (await res.json()) as { holders: string[] };
+    expect(holders).toHaveLength(2);
+    expect(holders.every((h) => ["rHa", "rHb", "rHc"].includes(h))).toBe(true);
   });
 
   it("deletes an issuance over HTTP and 404s an unknown id", async () => {
