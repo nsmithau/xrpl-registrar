@@ -35,6 +35,13 @@ function asRecord(v: unknown): Record<string, unknown> {
   return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
 }
 
+/** The account does not exist on-ledger at the queried ledger — e.g. a holder
+ * that was later deleted (AccountDelete). The archive keeps it (append-only),
+ * but on-chain it holds nothing, so its balance is 0. */
+function isActNotFound(err: unknown): boolean {
+  return asRecord(err)["code"] === "actNotFound";
+}
+
 /** GET the admin API with the bearer token. */
 async function adminGet(
   adminUrl: string,
@@ -89,20 +96,29 @@ async function chainIouBalance(
   currency: string,
   ledger: number,
 ): Promise<Big> {
-  const res = await client.request<{
-    lines?: Array<{ account?: string; balance?: string; currency?: string }>;
-  }>({
-    command: "account_lines",
-    account: holder,
-    peer: issuer,
-    ledger_index: ledger,
-  });
-  for (const line of res.result.lines ?? []) {
-    if (line.account === issuer && line.currency && currencyToString(line.currency) === currency) {
-      return new Big(line.balance ?? "0");
+  try {
+    const res = await client.request<{
+      lines?: Array<{ account?: string; balance?: string; currency?: string }>;
+    }>({
+      command: "account_lines",
+      account: holder,
+      peer: issuer,
+      ledger_index: ledger,
+    });
+    for (const line of res.result.lines ?? []) {
+      if (
+        line.account === issuer &&
+        line.currency &&
+        currencyToString(line.currency) === currency
+      ) {
+        return new Big(line.balance ?? "0");
+      }
     }
+    return new Big(0); // no trustline at that ledger → holds nothing
+  } catch (err) {
+    if (isActNotFound(err)) return new Big(0); // account gone at this ledger
+    throw err;
   }
-  return new Big(0); // no trustline at that ledger → holds nothing
 }
 
 /** On-chain MPT balance at `ledger`, via account_objects (filtered to the MPT). */
@@ -112,18 +128,23 @@ async function chainMptBalance(
   mptIssuanceId: string,
   ledger: number,
 ): Promise<Big> {
-  const res = await client.request<{ account_objects?: unknown[] }>({
-    command: "account_objects",
-    account: holder,
-    ledger_index: ledger,
-  });
-  for (const raw of res.result.account_objects ?? []) {
-    const o = asRecord(raw);
-    if (o["LedgerEntryType"] === "MPToken" && o["MPTokenIssuanceID"] === mptIssuanceId) {
-      return new Big(typeof o["MPTAmount"] === "string" ? o["MPTAmount"] : 0);
+  try {
+    const res = await client.request<{ account_objects?: unknown[] }>({
+      command: "account_objects",
+      account: holder,
+      ledger_index: ledger,
+    });
+    for (const raw of res.result.account_objects ?? []) {
+      const o = asRecord(raw);
+      if (o["LedgerEntryType"] === "MPToken" && o["MPTokenIssuanceID"] === mptIssuanceId) {
+        return new Big(typeof o["MPTAmount"] === "string" ? o["MPTAmount"] : 0);
+      }
     }
+    return new Big(0); // no MPToken at that ledger → holds nothing
+  } catch (err) {
+    if (isActNotFound(err)) return new Big(0); // account gone at this ledger
+    throw err;
   }
-  return new Big(0); // no MPToken at that ledger → holds nothing
 }
 
 /** Resolve the ISSUANCE spec against the admin issuance list. */
