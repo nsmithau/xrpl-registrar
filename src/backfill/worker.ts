@@ -6,7 +6,10 @@ import {
   completeJob,
   type BackfillJob,
 } from "../db/repositories/backfillJobs.js";
-import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
+import {
+  insertTransactionRowsMany,
+  type IngestTransaction,
+} from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
 import { decodeMeta, type DeriveDeltas } from "../reconcile/incremental.js";
@@ -32,6 +35,12 @@ export interface BackfillWorkerOptions {
     account: string,
     provenance: Provenance,
   ) => IngestTransaction;
+  /** Which of an account's `account_tx` entries to ingest. A discovered holder's
+   * `account_tx` also carries its unrelated activity (offers, XRP, other
+   * tokens); the archive is issuance-scoped, so `serve` passes a predicate that
+   * keeps only transactions touching a tracked issuance — the same filter the
+   * issuer sweep, gap heal, and live tail apply. Default: keep all. */
+  readonly keep?: (entry: BinaryTxEntry) => boolean;
   /** Derive each transaction's balance deltas as it is ingested, on the same DB
    * transaction as the insert (so backfilled history has deltas without a
    * separate full re-scan). Default: none. */
@@ -57,6 +66,7 @@ export class BackfillWorker {
   readonly #pageLimit: number | undefined;
   readonly #concurrency: number;
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
+  readonly #keep: (entry: BinaryTxEntry) => boolean;
   readonly #deriveDeltas: DeriveDeltas;
   readonly jobs: BackfillJobRepository;
   /** Session-wide running total of transactions ingested, for the throttled
@@ -71,6 +81,7 @@ export class BackfillWorker {
     this.#pageLimit = options.pageLimit;
     this.#concurrency = Math.max(1, options.concurrency ?? 4);
     this.#mapEntry = options.mapEntry ?? mapBinaryEntry;
+    this.#keep = options.keep ?? (() => true);
     this.#deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
     this.jobs = new BackfillJobRepository(options.db);
   }
@@ -95,14 +106,23 @@ export class BackfillWorker {
         limit: this.#pageLimit,
       })) {
         const isFinal = page.marker === undefined;
-        const mapped = page.entries.map((entry) => this.#mapEntry(entry, job.address, page.provenance));
-        for (const m of mapped) if (m.ledgerIndex > maxLedger) maxLedger = m.ledgerIndex;
+        // Coverage reflects the full scanned range (we saw every tx up to here),
+        // even where none were in scope — so the ceiling is the last ledger seen.
+        for (const entry of page.entries)
+          if (entry.ledger_index > maxLedger) maxLedger = entry.ledger_index;
+        // Ingest only in-scope entries: a discovered holder's account_tx also
+        // carries its unrelated activity, which the archive does not track.
+        const mapped = page.entries
+          .filter((entry) => this.#keep(entry))
+          .map((entry) => this.#mapEntry(entry, job.address, page.provenance));
         await this.#db.transaction(async (t) => {
           // Batch the page's rows (one multi-row statement per table), then derive
           // deltas per transaction (the rows exist, so the delta FK is satisfied).
-          await insertTransactionRowsMany(t, mapped);
-          for (const m of mapped) await this.#deriveDeltas(t, m.hash, decodeMeta(m.metaBlob));
-          await checkpointJob(t, job.id, page.marker, page.entries.length);
+          if (mapped.length > 0) {
+            await insertTransactionRowsMany(t, mapped);
+            for (const m of mapped) await this.#deriveDeltas(t, m.hash, decodeMeta(m.metaBlob));
+          }
+          await checkpointJob(t, job.id, page.marker, mapped.length);
           if (isFinal) {
             await completeJob(t, job.id);
             // Coverage is only claimed once the account is exhausted: complete
@@ -121,7 +141,7 @@ export class BackfillWorker {
         });
         // A single running counter across all accounts, throttled — not a line
         // per account or page.
-        this.#ingestedTotal += page.entries.length;
+        this.#ingestedTotal += mapped.length;
         if (this.#ingestedTotal - this.#lastProgressAt >= BACKFILL_PROGRESS_EVERY) {
           this.#lastProgressAt = this.#ingestedTotal;
           this.#logger.info("backfill progress", { tx: this.#ingestedTotal });

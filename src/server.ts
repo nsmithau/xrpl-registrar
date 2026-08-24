@@ -34,6 +34,7 @@ import {
   deltaDeriver,
   ensureLedgerCloseTimes,
   holdersInMeta,
+  holdersInMetaBlob,
   ingestIssuance,
   issuanceScope,
   issuerOf,
@@ -42,10 +43,12 @@ import {
   openArchiveDatabase,
   runIssuerBackfill,
   trackedIssuance,
+  type BinaryTxEntry,
   type DecodedMeta,
   type IssuanceRecord,
   type TrackedIssuance,
 } from "./index.js";
+import { hexToBytes } from "./util/hex.js";
 
 const PORT = Number(process.env.PORT ?? 51234);
 // Bind address for the PUBLIC read API only. Defaults to loopback: the secure,
@@ -154,6 +157,13 @@ const refreshTracked = async (): Promise<void> => {
 };
 const deriveDeltas = deltaDeriver(() => tracked);
 
+// Per-holder backfill scope filter: a discovered holder's account_tx also
+// carries its unrelated activity (offers, XRP, other tokens), so ingest only
+// the entries that touch a tracked issuance — the same scope the issuer sweep,
+// gap heal, and tail apply. Reads `tracked` live (it grows as issuances register).
+const inScopeEntry = (entry: BinaryTxEntry): boolean =>
+  holdersInMetaBlob(hexToBytes(entry.meta_blob), tracked).length > 0;
+
 // serve never auto-populates: it serves whatever is already in the archive and
 // keeps it current. Register issuances via the admin API; the guided testnet
 // tour that ingests a sample issuance is `pnpm demo`.
@@ -213,7 +223,7 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
     { address: holder, discoveredVia: "stream", firstAcquisitionLedger: null },
   ]);
   inScope.add(`${issuanceId}|${holder}`);
-  const worker = new BackfillWorker({ client: pagingClient, db, deriveDeltas });
+  const worker = new BackfillWorker({ client: pagingClient, db, deriveDeltas, keep: inScopeEntry });
   await worker.enqueue(issuanceId, [holder], 0);
   // Streaming discovery: the tail spotted a holder not yet in scope and is
   // bringing it in. Tracked as "discovery" (the bulk issuer sweep is "backfill"),
@@ -326,7 +336,13 @@ async function resumeBackfills(): Promise<void> {
         issuanceId: issuance.id,
         outstanding: Number(rows[0]!.n),
       });
-      const worker = new BackfillWorker({ client: pagingClient, db, logger: log, deriveDeltas });
+      const worker = new BackfillWorker({
+        client: pagingClient,
+        db,
+        logger: log,
+        deriveDeltas,
+        keep: inScopeEntry,
+      });
       await activity.track("backfill", `resuming holders ${label ?? issuance.id}`, () =>
         worker.runIssuance(issuance.id),
       );

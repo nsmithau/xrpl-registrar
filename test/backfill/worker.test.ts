@@ -12,7 +12,11 @@ const ACCT = "rAcct";
 
 // Identity mapper: the entry's tx_blob doubles as the tx hash, so we can drive
 // the worker's resume/idempotency logic without fabricating real XRPL binary.
-const idMap = (entry: BinaryTxEntry, account: string, provenance: IngestTransaction["provenance"]): IngestTransaction => ({
+const idMap = (
+  entry: BinaryTxEntry,
+  account: string,
+  provenance: IngestTransaction["provenance"],
+): IngestTransaction => ({
   hash: entry.tx_blob,
   ledgerIndex: entry.ledger_index,
   txType: "Payment",
@@ -48,7 +52,9 @@ function pageServer(opts: { throwOn?: string; seen?: unknown[] } = {}) {
 }
 
 async function txCount(db: Database): Promise<number> {
-  const { rows } = await db.query<{ n: number | string }>("SELECT count(*)::bigint AS n FROM transactions");
+  const { rows } = await db.query<{ n: number | string }>(
+    "SELECT count(*)::bigint AS n FROM transactions",
+  );
   return Number(rows[0]!.n);
 }
 
@@ -58,7 +64,10 @@ describe("BackfillWorker", () => {
 
   beforeEach(async () => {
     db = await openArchiveDatabase();
-    const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" });
+    const issuance = await new IssuanceRepository(db).create({
+      kind: "mpt",
+      mptIssuanceId: "MPT_A",
+    });
     issuanceId = issuance.id;
     await db.query("INSERT INTO accounts (address) VALUES ($1)", [ACCT]);
   });
@@ -113,7 +122,11 @@ describe("BackfillWorker", () => {
 
   it("resumes from its checkpoint after a crash with no gaps or duplicates", async () => {
     // Crash while requesting the final page (m2), after two pages committed.
-    const worker1 = new BackfillWorker({ client: pageServer({ throwOn: "m2" }), db, mapEntry: idMap });
+    const worker1 = new BackfillWorker({
+      client: pageServer({ throwOn: "m2" }),
+      db,
+      mapEntry: idMap,
+    });
     await worker1.enqueue(issuanceId, [ACCT], 0);
     const job = await worker1.jobs.claim(issuanceId);
     await expect(worker1.runJob(job!)).rejects.toThrow("simulated crash");
@@ -137,8 +150,14 @@ describe("BackfillWorker", () => {
 
   it("backfills multiple accounts concurrently, claiming each job exactly once", async () => {
     const accts = ["rA", "rB", "rC", "rD", "rE", "rF"];
-    for (const a of accts) await db.query("INSERT INTO accounts (address) VALUES ($1) ON CONFLICT DO NOTHING", [a]);
-    const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap, concurrency: 4 });
+    for (const a of accts)
+      await db.query("INSERT INTO accounts (address) VALUES ($1) ON CONFLICT DO NOTHING", [a]);
+    const worker = new BackfillWorker({
+      client: pageServer(),
+      db,
+      mapEntry: idMap,
+      concurrency: 4,
+    });
     await worker.enqueue(issuanceId, accts, 0);
 
     const { processed } = await worker.runIssuance(issuanceId);
@@ -149,7 +168,9 @@ describe("BackfillWorker", () => {
     // The fake serves the same 4 tx to every account: deduped to 4 rows, with
     // one link per (account) — proving concurrent ingest stays consistent.
     expect(await txCount(db)).toBe(4);
-    const links = await db.query<{ n: number | string }>("SELECT count(*)::bigint AS n FROM account_transactions");
+    const links = await db.query<{ n: number | string }>(
+      "SELECT count(*)::bigint AS n FROM account_transactions",
+    );
     expect(Number(links.rows[0]!.n)).toBe(4 * accts.length);
   });
 
@@ -187,6 +208,27 @@ describe("BackfillWorker", () => {
     const jobs = await worker.jobs.listForIssuance(issuanceId);
     const status = Object.fromEntries(jobs.map((j) => [j.address, j.status]));
     expect(status).toMatchObject({ rOK: "completed", rBAD: "failed" });
+  });
+
+  it("ingests only entries the keep predicate accepts (issuance scope), but covers the full scan", async () => {
+    // A discovered holder's account_tx: keep only E1 and E3 (the in-scope ones);
+    // E2 and E4 are the holder's unrelated activity and must not be ingested.
+    const keep = (entry: BinaryTxEntry): boolean =>
+      entry.tx_blob === "E1" || entry.tx_blob === "E3";
+    const worker = new BackfillWorker({ client: pageServer(), db, mapEntry: idMap, keep });
+    await worker.enqueue(issuanceId, [ACCT], 0);
+    const done = await worker.runJob((await worker.jobs.claim(issuanceId))!);
+
+    expect(done.status).toBe("completed");
+    expect(done.txCount).toBe(2); // only the kept entries
+    expect(await txCount(db)).toBe(2);
+    // Coverage still extends to the last ledger scanned (103, E4), even though
+    // the last *kept* tx was E3 at ledger 102 — the scan saw everything.
+    const cov = await db.query<{ to_ledger: string }>(
+      "SELECT to_ledger FROM coverage WHERE address = $1",
+      [ACCT],
+    );
+    expect(Number(cov.rows[0]!.to_ledger)).toBe(103);
   });
 
   it("is idempotent when a completed job is re-run", async () => {
