@@ -184,6 +184,14 @@ pnpm lint
 pnpm build             # emit to dist/
 ```
 
+**Balance smoke test.** Against a populated archive, `pnpm verify` samples random holders of an issuance and checks each archive balance against the on-chain balance at a ledger (latest if unset) — a quick data-integrity/health check. Exits non-zero on any mismatch.
+
+```bash
+# ISSUANCE = numeric id | 48-hex MPT id | CURRENCY/ISSUER
+ISSUANCE="RLUSD/r<issuer>" SAMPLE=20 pnpm verify        # at the latest ledger
+ISSUANCE=1 LEDGER=20000000 pnpm verify                  # as of a past ledger
+```
+
 ## Roadmap
 
 Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. A native Ubuntu deployment path ships in [`deploy/`](deploy/) — a compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an nginx + TLS example, and a runbook. Not yet built: multi-_process_ backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and the remaining ops surface (a metrics endpoint, a container image). The public read API binds to localhost by default and the admin surface must never be publicly exposed.

@@ -51,7 +51,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "probe": "tsx --env-file-if-exists=.env examples/probe-ratelimit.ts"
+    "probe": "tsx --env-file-if-exists=.env examples/probe-ratelimit.ts",
+    "verify": "tsx --env-file-if-exists=.env examples/verify-balances.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
