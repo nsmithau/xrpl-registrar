@@ -1,0 +1,8 @@
+# Lockfiles are written by pnpm in its own canonical format; letting prettier
+# rewrite them just churns the diff and breaks Dependabot PRs on format:check.
+pnpm-lock.yaml
+
+# Build output and local data
+dist/
+coverage/
+data/
