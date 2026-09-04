@@ -14,7 +14,7 @@ import { hexToBytes } from "../../src/util/hex.js";
 
 const MPT = "000000011515151515151515151515151515151515151515";
 const HOLDER = "rLsf6CoQBcqncszYcxZMzWFDtwng28o5g3";
-const RLUSD_HEX = "524C555344000000000000000000000000000000";
+const TOKEN_HEX = "544F4B454E000000000000000000000000000000";
 const ISSUER = "rJ2BeYMXK5zmQSnsRGbL4iqsy9Pw8YVeow";
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
@@ -33,9 +33,9 @@ function iouMetaBlob(): Uint8Array {
           LedgerEntryType: "RippleState",
           LedgerIndex: "0".repeat(64),
           FinalFields: {
-            Balance: { currency: RLUSD_HEX, issuer: ISSUER, value: "-50" },
-            LowLimit: { currency: RLUSD_HEX, issuer: ISSUER, value: "0" },
-            HighLimit: { currency: RLUSD_HEX, issuer: HOLDER, value: "1000000" },
+            Balance: { currency: TOKEN_HEX, issuer: ISSUER, value: "-50" },
+            LowLimit: { currency: TOKEN_HEX, issuer: ISSUER, value: "0" },
+            HighLimit: { currency: TOKEN_HEX, issuer: HOLDER, value: "1000000" },
             Flags: 0,
           },
         },
@@ -121,7 +121,7 @@ describe("deriveTxDeltas", () => {
 
 describe("holdersInMetaBlob (streaming discovery)", () => {
   const mpt: TrackedIssuance = { id: 1, kind: "mpt", mptIssuanceId: MPT };
-  const iou: TrackedIssuance = { id: 2, kind: "iou", currency: "RLUSD", issuer: ISSUER };
+  const iou: TrackedIssuance = { id: 2, kind: "iou", currency: "TOKEN", issuer: ISSUER };
 
   it("extracts an MPT holder from a transaction's meta", () => {
     expect(holdersInMetaBlob(mptMetaBlob(100, 40), [mpt])).toEqual([

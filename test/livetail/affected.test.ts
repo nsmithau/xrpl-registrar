@@ -6,9 +6,9 @@ const scope = new Set(["rA", "rB"]);
 
 describe("affectedAccounts", () => {
   it("picks up in-scope Account/Destination and ignores out-of-scope", () => {
-    expect(
-      affectedAccounts({ Account: "rA", Destination: "rZ" }, undefined, scope).sort(),
-    ).toEqual(["rA"]);
+    expect(affectedAccounts({ Account: "rA", Destination: "rZ" }, undefined, scope).sort()).toEqual(
+      ["rA"],
+    );
   });
 
   it("finds owners of affected ledger objects that are in scope", () => {

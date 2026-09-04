@@ -165,7 +165,7 @@ async function main(): Promise<void> {
   const spec = process.env.ISSUANCE?.trim();
   if (!spec) {
     console.error(
-      'Set ISSUANCE=<id | mpt_id | CURRENCY/ISSUER>. e.g. ISSUANCE="RLUSD/rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV" pnpm verify',
+      'Set ISSUANCE=<id | mpt_id | CURRENCY/ISSUER>. e.g. ISSUANCE="TOKEN/r<issuer>" pnpm verify',
     );
     process.exit(2);
   }

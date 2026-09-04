@@ -3,7 +3,7 @@
 **Date:** 2026-08-12. **Status:** Amended — the default ingest path is superseded by [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md).
 
 > **Amendment note.** ADR-013 established, with live evidence, that the issuer's
-> `account_tx` contains *every* in-scope transaction — including holder-to-holder
+> `account_tx` contains _every_ in-scope transaction — including holder-to-holder
 > transfers on non-auth MPTs, where this ADR assumed no issuer chokepoint. Discovery
 > is therefore folded into the single issuer sweep (`holdersInMeta` per page); no
 > strategy is selected or run at registration. The strategies below (`discover()`,
@@ -21,11 +21,11 @@ The driving issuer needs history for **any holder at any time**, not just curren
 
 Derive the historical account set per issuance, using a strategy auto-detected from the issuance flags and overridable in config.
 
-| Strategy | Applies to | Method | Cost |
-|----------|-----------|--------|------|
-| Authorisation scan | MPTs with require-auth | Issuer `account_tx`, `tx_type: MPTokenAuthorize` — every account ever authorised, a safe superset | Low, bounded |
-| Trustline scan | All IOUs | Issuer `account_tx`, `tx_type: TrustSet` | Low, bounded |
-| Traversal | MPTs without require-auth; universal fallback | From the issuer, follow `mpt_issuance_id`-carrying transactions to counterparties, recursing to closure | Higher |
+| Strategy           | Applies to                                    | Method                                                                                                  | Cost         |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------ |
+| Authorisation scan | MPTs with require-auth                        | Issuer `account_tx`, `tx_type: MPTokenAuthorize` — every account ever authorised, a safe superset       | Low, bounded |
+| Trustline scan     | All IOUs                                      | Issuer `account_tx`, `tx_type: TrustSet`                                                                | Low, bounded |
+| Traversal          | MPTs without require-auth; universal fallback | From the issuer, follow `mpt_issuance_id`-carrying transactions to counterparties, recursing to closure | Higher       |
 
 ## Rationale
 
@@ -37,12 +37,12 @@ Non-auth MPTs have no chokepoint, because holder-to-holder transfers never touch
 
 ## Options Considered
 
-| Option | Verdict |
-|--------|---------|
-| `mpt_holders` sweep only | **Insufficient.** Current holders only; misses anyone who exited before first sync. |
-| Full ledger scan from issuance forward | **Rejected.** Complete, but reads every transaction in every ledger since issuance rather than only accounts that actually held. Traversal gets the same completeness at a fraction of the cost. |
-| Issuer-scoped scan only | **Rejected as general solution.** Correct for auth-required MPTs and IOUs, silently incomplete for non-auth MPTs. Shipping it alone would make the tool specific to a single issuance. |
-| Traversal as base, scans as optimisation *(chosen)* | One general algorithm; short-circuit where flags permit. |
+| Option                                              | Verdict                                                                                                                                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mpt_holders` sweep only                            | **Insufficient.** Current holders only; misses anyone who exited before first sync.                                                                                                              |
+| Full ledger scan from issuance forward              | **Rejected.** Complete, but reads every transaction in every ledger since issuance rather than only accounts that actually held. Traversal gets the same completeness at a fraction of the cost. |
+| Issuer-scoped scan only                             | **Rejected as general solution.** Correct for auth-required MPTs and IOUs, silently incomplete for non-auth MPTs. Shipping it alone would make the tool specific to a single issuance.           |
+| Traversal as base, scans as optimisation _(chosen)_ | One general algorithm; short-circuit where flags permit.                                                                                                                                         |
 
 ## Consequences
 

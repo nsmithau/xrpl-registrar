@@ -86,7 +86,12 @@ export class ClioClient {
             `Clio request '${outbound.command}' failed` +
               (code !== undefined ? ` (${code})` : "") +
               (attempt > 0 ? ` after ${attempt + 1} attempts` : ""),
-            { command: outbound.command, ...(code !== undefined ? { code } : {}), attempts: attempt + 1, cause: err },
+            {
+              command: outbound.command,
+              ...(code !== undefined ? { code } : {}),
+              attempts: attempt + 1,
+              cause: err,
+            },
           );
         }
 

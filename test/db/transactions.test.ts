@@ -97,7 +97,10 @@ describe("insertTransactionRowsMany (batch)", () => {
   });
 
   const count = async (table: string): Promise<number> =>
-    Number((await db.query<{ n: number | string }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!.n);
+    Number(
+      (await db.query<{ n: number | string }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!
+        .n,
+    );
 
   beforeEach(async () => {
     db = await openArchiveDatabase();
@@ -121,8 +124,8 @@ describe("insertTransactionRowsMany (batch)", () => {
   });
 
   it("dedupes within a batch and is idempotent across batches", async () => {
-    await db.transaction((t) =>
-      insertTransactionRowsMany(t, [tx("T1", 100, ["rA"]), tx("T1", 100, ["rA"])]), // dup in one batch
+    await db.transaction(
+      (t) => insertTransactionRowsMany(t, [tx("T1", 100, ["rA"]), tx("T1", 100, ["rA"])]), // dup in one batch
     );
     await db.transaction((t) => insertTransactionRowsMany(t, [tx("T1", 100, ["rA"])])); // and again
 

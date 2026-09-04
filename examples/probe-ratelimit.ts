@@ -1,19 +1,22 @@
 /**
- * Rate-limit probe — see docs/rate-limit-probe-plan.md.
+ * Rate-limit probe — the measurements behind ADR-015 (governor defaults) and
+ * ADR-016 (HTTP paging).
  *
  * Measures how public Clio endpoints shed load, to inform the concurrency
  * governor. Standalone and **bypasses our governor** (we want the endpoint's
  * limits, not ours). Reuses `classifyError` so results map onto the exact load
  * signals the governor reacts to. Probes WebSocket (xrpl.js) and HTTP JSON-RPC.
  *
- * SAFETY — these are shared public clusters ("not for sustained/business use").
+ * SAFETY — public clusters are shared ("not for sustained/business use").
  * The probe ramps gently, caps the peak, pauses between steps, and aborts a ramp
- * once an endpoint starts shedding. Default target is TESTNET; mainnet
- * (s2.ripple.com) is opt-in. Run off-peak and brief the operator before heavy
- * runs. This script is NOT run automatically — invoke it deliberately.
+ * once an endpoint starts shedding. Default target is TESTNET; a mainnet target
+ * is opt-in and must be supplied explicitly (PROBE_MAINNET_WS / PROBE_MAINNET_HTTP)
+ * — point it at a full-history Clio you are entitled to load-test. Run off-peak
+ * and brief the operator before heavy runs. This script is NOT run automatically
+ * — invoke it deliberately.
  *
  *   pnpm probe                                   # testnet clio, WS+HTTP, all phases
- *   PROBE_TARGETS=testnet,mainnet PROBE_ACCOUNT=r... pnpm probe   # mainnet needs an active account for account_tx
+ *   PROBE_TARGETS=testnet,mainnet PROBE_MAINNET_WS=wss://... PROBE_MAINNET_HTTP=https://... PROBE_ACCOUNT=r... pnpm probe
  *   PROBE_TRANSPORTS=ws PROBE_PHASES=concurrency,rate,recovery pnpm probe
  *   PROBE_METHODS=server_info,account_tx PROBE_MAX_CONCURRENCY=48 pnpm probe
  *
@@ -40,11 +43,12 @@ const TARGETS: Record<string, Target> = {
     ws: "wss://clio.altnet.rippletest.net:51233/",
     http: "https://clio.altnet.rippletest.net:51234/",
   },
+  // No mainnet host is baked in: supply one you are entitled to load-test.
   mainnet: {
     key: "mainnet",
-    name: "s2.ripple.com",
-    ws: "wss://s2.ripple.com/",
-    http: "https://s2.ripple.com:51234/",
+    name: process.env.PROBE_MAINNET_WS ?? "mainnet clio (PROBE_MAINNET_WS/HTTP unset)",
+    ws: process.env.PROBE_MAINNET_WS ?? "",
+    http: process.env.PROBE_MAINNET_HTTP ?? "",
   },
 };
 
@@ -548,9 +552,14 @@ async function main(): Promise<void> {
   );
   if (CFG.methods.includes("account_tx")) console.log(`account_tx probes account ${PROBE_ACCOUNT}`);
   if (CFG.targets.includes("mainnet")) {
-    console.log(
-      "⚠️  mainnet (s2.ripple.com) is a shared public cluster — run off-peak and keep the peak modest.",
-    );
+    if (!TARGETS["mainnet"]!.ws || !TARGETS["mainnet"]!.http) {
+      console.error(
+        "mainnet target requires PROBE_MAINNET_WS and PROBE_MAINNET_HTTP (a full-history Clio you are entitled to load-test).",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    console.log("⚠️  mainnet clusters are shared — run off-peak and keep the peak modest.");
     if (CFG.methods.includes("account_tx") && !process.env.PROBE_ACCOUNT) {
       console.log(
         "⚠️  account_tx uses the testnet default account — set PROBE_ACCOUNT to an active mainnet account.",

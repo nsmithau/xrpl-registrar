@@ -17,15 +17,15 @@ Out-of-scope requests are governed by a `forwardUnknownAccounts` switch, default
 
 ## Options Considered
 
-| Option | Verdict |
-|--------|---------|
-| Return an empty result set | **Rejected outright.** Silent wrong answer. A holder with a real balance appears to have had no activity. |
-| Reuse `actNotFound` | **Rejected.** It asserts the account does not exist on the ledger — a different and false claim. Conflating the two is how someone eventually concludes a holder had no activity. |
-| Always forward transparently | **Rejected as default.** If a statement generator queries an out-of-scope account and quietly gets an answer proxied from a public node at query time, we have reintroduced exactly the dependency the archive exists to remove — except invisibly, because the response looks normal. |
-| Fail closed with a distinct error *(chosen)* | Loud failure is the only behaviour that preserves the guarantee. Forwarding stays available for evaluation and development. |
+| Option                                       | Verdict                                                                                                                                                                                                                                                                                |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Return an empty result set                   | **Rejected outright.** Silent wrong answer. A holder with a real balance appears to have had no activity.                                                                                                                                                                              |
+| Reuse `actNotFound`                          | **Rejected.** It asserts the account does not exist on the ledger — a different and false claim. Conflating the two is how someone eventually concludes a holder had no activity.                                                                                                      |
+| Always forward transparently                 | **Rejected as default.** If a statement generator queries an out-of-scope account and quietly gets an answer proxied from a public node at query time, we have reintroduced exactly the dependency the archive exists to remove — except invisibly, because the response looks normal. |
+| Fail closed with a distinct error _(chosen)_ | Loud failure is the only behaviour that preserves the guarantee. Forwarding stays available for evaluation and development.                                                                                                                                                            |
 
 ## Consequences
 
 - Consistent with "empty configuration is an error" — the system fails closed throughout.
-- **The same problem exists in a second form: ledger range.** A whitelisted account queried for a period before the archive's floor returns real but incomplete data. Report true `ledger_index_min`/`max` rather than echoing `-1`, and warn when a requested range exceeds coverage. Partial history for an in-scope account is *more* dangerous than no history for an out-of-scope one, because nothing looks wrong.
+- **The same problem exists in a second form: ledger range.** A whitelisted account queried for a period before the archive's floor returns real but incomplete data. Report true `ledger_index_min`/`max` rather than echoing `-1`, and warn when a requested range exceeds coverage. Partial history for an in-scope account is _more_ dangerous than no history for an out-of-scope one, because nothing looks wrong.
 - Requires per-account coverage metadata: what range is guaranteed, and why the account is in scope.

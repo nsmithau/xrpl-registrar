@@ -1,6 +1,6 @@
 # ADR-017: Serve `gateway_balances` for IOU issuers — scoped and fail-closed
 
-**Status:** Accepted — implemented. Decider: Neil Smith.
+**Status:** Accepted — implemented. Decider: nsmithau.
 
 ## Context
 

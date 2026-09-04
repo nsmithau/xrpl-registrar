@@ -17,10 +17,7 @@ export function errorResult(
  * `actNotFound`/`txnNotFound`, which assert non-existence on the ledger — a
  * different and false claim. Carries the archive scope so callers can see why.
  */
-export function notInArchive(
-  what: string,
-  scope: ArchiveScopeSummary,
-): Record<string, unknown> {
+export function notInArchive(what: string, scope: ArchiveScopeSummary): Record<string, unknown> {
   return errorResult(
     "notInArchive",
     `${what} is not in this filtered archive (it may exist on the ledger, out of scope).`,

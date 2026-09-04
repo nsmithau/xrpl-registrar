@@ -44,7 +44,13 @@ export type DeriveDeltas = (q: Queryable, hash: string, meta: DecodedMeta) => Pr
 export const noopDeriveDeltas: DeriveDeltas = () => Promise.resolve();
 
 export function trackedIssuance(i: IssuanceRecord): TrackedIssuance {
-  return { id: i.id, kind: i.kind, mptIssuanceId: i.mptIssuanceId, currency: i.currency, issuer: i.issuerAccount };
+  return {
+    id: i.id,
+    kind: i.kind,
+    mptIssuanceId: i.mptIssuanceId,
+    currency: i.currency,
+    issuer: i.issuerAccount,
+  };
 }
 
 /**
@@ -123,12 +129,18 @@ export function holdersInMeta(
       asRecord(wrapper?.["ModifiedNode"]) ??
       asRecord(wrapper?.["DeletedNode"]);
     const type = node ? asString(node["LedgerEntryType"]) : undefined;
-    const fields = node ? (asRecord(node["FinalFields"]) ?? asRecord(node["NewFields"])) : undefined;
+    const fields = node
+      ? (asRecord(node["FinalFields"]) ?? asRecord(node["NewFields"]))
+      : undefined;
     if (!fields) continue;
 
     for (const iss of issuances) {
       let holder: string | undefined;
-      if (iss.kind === "mpt" && type === "MPToken" && asString(fields["MPTokenIssuanceID"]) === (iss.mptIssuanceId ?? "")) {
+      if (
+        iss.kind === "mpt" &&
+        type === "MPToken" &&
+        asString(fields["MPTokenIssuanceID"]) === (iss.mptIssuanceId ?? "")
+      ) {
         holder = asString(fields["Account"]);
       } else if (iss.kind === "iou" && type === "RippleState") {
         holder = holderInfo(fields, iss.issuer ?? "", iss.currency ?? "")?.holder;
@@ -156,7 +168,9 @@ export function holdersInMetaBlob(
 /** Build a {@link DeriveDeltas} hook bound to a fixed set of issuances (backfill,
  * where the issuance is known) or to a live getter (the tail, where the tracked
  * set grows as issuances register). */
-export function deltaDeriver(issuances: readonly TrackedIssuance[] | (() => readonly TrackedIssuance[])): DeriveDeltas {
+export function deltaDeriver(
+  issuances: readonly TrackedIssuance[] | (() => readonly TrackedIssuance[]),
+): DeriveDeltas {
   const resolve = typeof issuances === "function" ? issuances : () => issuances;
   return (q, hash, meta) => deriveTxDeltasFromMeta(q, resolve(), hash, meta).then(() => undefined);
 }

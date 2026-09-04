@@ -41,8 +41,8 @@ and consults upstream only through this one explicit, cached seam.
 
 ## Options Considered
 
-| Option | Verdict |
-|--------|---------|
-| Eager per-ledger capture at ingest *(previous)* | Rejected. O(ledgers) upstream calls paid up front, usually unused. |
-| Background/throttled eager capture | Rejected. Still O(ledgers) total; complexity without removing the work. |
-| **Lazy binary-search on demand, cached** *(chosen)* | O(log range) per cold time query, zero otherwise; reporting stays archive-only by default via an injected resolver. |
+| Option                                              | Verdict                                                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Eager per-ledger capture at ingest _(previous)_     | Rejected. O(ledgers) upstream calls paid up front, usually unused.                                                  |
+| Background/throttled eager capture                  | Rejected. Still O(ledgers) total; complexity without removing the work.                                             |
+| **Lazy binary-search on demand, cached** _(chosen)_ | O(log range) per cold time query, zero otherwise; reporting stays archive-only by default via an injected resolver. |

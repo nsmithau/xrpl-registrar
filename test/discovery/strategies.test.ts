@@ -8,8 +8,8 @@ import { fakeReader, txEntry } from "./fakes.js";
 
 const ISSUER = "rIssuer";
 const MPT = "MPT_A";
-// "RLUSD" as a 40-hex non-standard currency code (ASCII + NUL padding).
-const RLUSD_HEX = "524C555344000000000000000000000000000000";
+// "TOKEN" as a 40-hex non-standard currency code (ASCII + NUL padding).
+const TOKEN_HEX = "544F4B454E000000000000000000000000000000";
 
 describe("authorizationScan", () => {
   it("collects holders for the issuance, following markers, ignoring other issuances", async () => {
@@ -19,9 +19,22 @@ describe("authorizationScan", () => {
       if (req.marker === undefined) {
         return {
           transactions: [
-            txEntry(10, { TransactionType: "MPTokenAuthorize", Account: "rH1", MPTokenIssuanceID: MPT }),
-            txEntry(11, { TransactionType: "MPTokenAuthorize", Account: "rH2", MPTokenIssuanceID: "OTHER" }),
-            txEntry(12, { TransactionType: "MPTokenAuthorize", Account: ISSUER, Holder: "rH3", MPTokenIssuanceID: MPT }),
+            txEntry(10, {
+              TransactionType: "MPTokenAuthorize",
+              Account: "rH1",
+              MPTokenIssuanceID: MPT,
+            }),
+            txEntry(11, {
+              TransactionType: "MPTokenAuthorize",
+              Account: "rH2",
+              MPTokenIssuanceID: "OTHER",
+            }),
+            txEntry(12, {
+              TransactionType: "MPTokenAuthorize",
+              Account: ISSUER,
+              Holder: "rH3",
+              MPTokenIssuanceID: MPT,
+            }),
           ],
           marker: "next",
         };
@@ -29,7 +42,11 @@ describe("authorizationScan", () => {
       return {
         transactions: [
           // rH1 appears again later; earliest ledger (10) must win.
-          txEntry(20, { TransactionType: "MPTokenAuthorize", Account: "rH1", MPTokenIssuanceID: MPT }),
+          txEntry(20, {
+            TransactionType: "MPTokenAuthorize",
+            Account: "rH1",
+            MPTokenIssuanceID: MPT,
+          }),
         ],
       };
     });
@@ -48,24 +65,53 @@ describe("trustlineScan", () => {
       expect(req.tx_type).toBe("TrustSet");
       return {
         transactions: [
-          txEntry(5, { TransactionType: "TrustSet", Account: "rA", LimitAmount: { currency: RLUSD_HEX, issuer: ISSUER, value: "100" } }),
+          txEntry(5, {
+            TransactionType: "TrustSet",
+            Account: "rA",
+            LimitAmount: { currency: TOKEN_HEX, issuer: ISSUER, value: "100" },
+          }),
           // wrong issuer
-          txEntry(6, { TransactionType: "TrustSet", Account: "rB", LimitAmount: { currency: RLUSD_HEX, issuer: "rOther", value: "100" } }),
+          txEntry(6, {
+            TransactionType: "TrustSet",
+            Account: "rB",
+            LimitAmount: { currency: TOKEN_HEX, issuer: "rOther", value: "100" },
+          }),
           // wrong currency
-          txEntry(7, { TransactionType: "TrustSet", Account: "rC", LimitAmount: { currency: "USD", issuer: ISSUER, value: "100" } }),
+          txEntry(7, {
+            TransactionType: "TrustSet",
+            Account: "rC",
+            LimitAmount: { currency: "USD", issuer: ISSUER, value: "100" },
+          }),
         ],
       };
     });
 
-    const accounts = await trustlineScan(client, "RLUSD", ISSUER);
-    expect(accounts).toEqual([{ address: "rA", discoveredVia: "trustline", firstAcquisitionLedger: 5 }]);
+    const accounts = await trustlineScan(client, "TOKEN", ISSUER);
+    expect(accounts).toEqual([
+      { address: "rA", discoveredVia: "trustline", firstAcquisitionLedger: 5 },
+    ]);
   });
 });
 
 describe("detectRequiresAuth", () => {
   it("reads the require-auth ledger flag (0x0004)", async () => {
-    expect(await detectRequiresAuth(fakeReader(() => ({ node: { Flags: 0x7e } })), MPT)).toBe(true);
-    expect(await detectRequiresAuth(fakeReader(() => ({ node: { Flags: 0x3a } })), MPT)).toBe(false);
-    expect(await detectRequiresAuth(fakeReader(() => ({})), MPT)).toBe(false);
+    expect(
+      await detectRequiresAuth(
+        fakeReader(() => ({ node: { Flags: 0x7e } })),
+        MPT,
+      ),
+    ).toBe(true);
+    expect(
+      await detectRequiresAuth(
+        fakeReader(() => ({ node: { Flags: 0x3a } })),
+        MPT,
+      ),
+    ).toBe(false);
+    expect(
+      await detectRequiresAuth(
+        fakeReader(() => ({})),
+        MPT,
+      ),
+    ).toBe(false);
   });
 });

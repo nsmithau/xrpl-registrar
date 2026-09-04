@@ -77,7 +77,7 @@ curl -s http://127.0.0.1:51235/admin/issuances \
 
 `backfillFromLedger` is an optional field that lower-bounds the issuer sweep. (The ingest path is a single issuer `account_tx` sweep that discovers holders and backfills history in one pass, so there is no per-issuance discovery strategy to configure.)
 
-For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`RLUSD`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `RLUSD` and `524C555344…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
+For an IOU, `currency` takes the readable code — a 3-character code (`USD`) or a longer one (`TOKEN`). The 40-hex on-wire form is also accepted and normalised to the readable code, so `TOKEN` and `544F4B454E…` register identically; a malformed or reserved (`XRP`) code is rejected. Query the reporting extensions with the same readable code.
 
 ```
 GET    /admin/issuances           # list configured issuances
@@ -122,7 +122,7 @@ Both reporting methods work for MPT **and** IOU issuances. Identify the issuance
 ```bash
 # Same query by currency + issuer (IOU) …
 curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
-  -d '{"method":"archive_balance_at","params":[{"currency":"RLUSD","issuer":"r...","account":"r...","ledger_index":20000000,"api_version":2}]}'
+  -d '{"method":"archive_balance_at","params":[{"currency":"TOKEN","issuer":"r...","account":"r...","ledger_index":20000000,"api_version":2}]}'
 # … or by the local issuance id (uniform across kinds)
 curl -s http://127.0.0.1:51234 -H 'content-type: application/json' \
   -d '{"method":"archive_balance_at","params":[{"issuance_id":1,"account":"r...","ledger_index":20000000,"api_version":2}]}'
@@ -185,7 +185,7 @@ pnpm build             # emit to dist/
 
 ```bash
 # ISSUANCE = numeric id | 48-hex MPT id | CURRENCY/ISSUER
-ISSUANCE="RLUSD/r<issuer>" SAMPLE=20 pnpm verify        # at the latest ledger
+ISSUANCE="TOKEN/r<issuer>" SAMPLE=20 pnpm verify        # at the latest ledger
 ISSUANCE=1 LEDGER=20000000 pnpm verify                  # as of a past ledger
 ```
 

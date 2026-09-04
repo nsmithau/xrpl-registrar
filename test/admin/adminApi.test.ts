@@ -38,20 +38,20 @@ describe("AdminApi", () => {
   });
 
   it("normalizes an IOU currency at registration and rejects a malformed one", async () => {
-    // The 40-hex on-wire form of RLUSD is stored as the readable code.
+    // The 40-hex on-wire form of TOKEN is stored as the readable code.
     const hex = await api.registerIssuance({
       kind: "iou",
-      currency: "524C555344000000000000000000000000000000",
+      currency: "544F4B454E000000000000000000000000000000",
       issuer: "rISS",
     });
-    expect(hex.currency).toBe("RLUSD");
+    expect(hex.currency).toBe("TOKEN");
     // A readable code is stored as-is.
     const readable = await api.registerIssuance({
       kind: "iou",
-      currency: "RLUSD",
+      currency: "TOKEN",
       issuer: "rISS2",
     });
-    expect(readable.currency).toBe("RLUSD");
+    expect(readable.currency).toBe("TOKEN");
     // XRP and empty are rejected outright rather than silently matching nothing.
     await expect(
       api.registerIssuance({ kind: "iou", currency: "XRP", issuer: "rISS3" }),

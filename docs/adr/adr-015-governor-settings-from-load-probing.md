@@ -14,12 +14,12 @@ to. This ADR records what it found and the settings that follow.
 
 - **Light requests (`server_info`) are rate-shaped over WS.** Clean to ~20 req/s
   (testnet) / ~38 req/s (mainnet), then `slowDown`; the concurrency ramp and the
-  rate ramp break at the same *offered rate*, so the limit is req/s, not in-flight
+  rate ramp break at the same _offered rate_, so the limit is req/s, not in-flight
   count. HTTP JSON-RPC has far more headroom (~150 req/s on mainnet), shedding via
   HTTP `503`.
 - **Heavy requests (paged binary `account_tx` — the backfill workload) are
   latency-bound over WS and do not parallelise on one socket.** Throughput is
-  *highest at concurrency 1* (~1.5/s, ~660 ms/page on mainnet) and *degrades* as
+  _highest at concurrency 1_ (~1.5/s, ~660 ms/page on mainnet) and _degrades_ as
   concurrency rises (≈5 s/page at C=4, timeouts at C=16), because the large binary
   responses head-of-line-block on the single WebSocket. Over HTTP the same paging
   holds ≈195 ms/page flat regardless of concurrency. This transport consequence is
@@ -31,7 +31,7 @@ to. This ADR records what it found and the settings that follow.
 ## Decision (validated defaults)
 
 - **`maxConcurrent = 4`.** Under the light-WS knee on both endpoints (testnet
-  ~C=4–8, mainnet ~C=8), and the heavy-WS path *wants* low concurrency
+  ~C=4–8, mainnet ~C=8), and the heavy-WS path _wants_ low concurrency
   (serialisation), so 4 is the right conservative global value. **Do not raise
   it** — higher concurrency inflates heavy-page latency without adding throughput
   on a single socket.

@@ -12,7 +12,10 @@ describe("AccountRepository", () => {
   beforeEach(async () => {
     db = await openArchiveDatabase();
     accounts = new AccountRepository(db);
-    const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" });
+    const issuance = await new IssuanceRepository(db).create({
+      kind: "mpt",
+      mptIssuanceId: "MPT_A",
+    });
     issuanceId = issuance.id;
   });
 

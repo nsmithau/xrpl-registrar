@@ -58,7 +58,9 @@ export async function handleMptHolders(
   const marker = typeof req.marker === "string" ? req.marker : undefined;
   const ordered = all
     .slice()
-    .sort((a, b) => (a.mptoken_index < b.mptoken_index ? -1 : a.mptoken_index > b.mptoken_index ? 1 : 0));
+    .sort((a, b) =>
+      a.mptoken_index < b.mptoken_index ? -1 : a.mptoken_index > b.mptoken_index ? 1 : 0,
+    );
   const after = marker ? ordered.filter((h) => h.mptoken_index > marker) : ordered;
   const page = after.slice(0, limit);
   const nextMarker = after.length > limit ? page[page.length - 1]!.mptoken_index : undefined;

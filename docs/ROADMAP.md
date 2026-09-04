@@ -134,6 +134,38 @@ Prerequisite for anyone running this against a real filing deadline.
 
 ---
 
+## 7. Range-sharded issuer sweep (M)
+
+**Why.** The issuer sweep ([ADR-013](adr/adr-013-issuer-centric-backfill-one-account-tx-sweep.md))
+pages one `account_tx` marker chain, so its throughput is exactly 1 ÷ page latency
+(~1 page/s on public testnet Clio) no matter how large the governor cap is or how well
+the HTTP transport ([ADR-016](adr/adr-016-http-transport-for-backfill-paging.md))
+parallelises — that parallelism only helps _across_ issuers and holders, not within one
+chain. For a busy issuer this is the whole wall-clock: a testnet stablecoin issuer does
+more than one transaction per ledger, so a from-genesis sweep is millions of entries
+(≈200 per 180 ledgers) walked serially, most of them off-scope for the registered
+issuance and discarded after decode.
+
+**What.** Split the sweep's `[from, tip]` into N disjoint ledger windows
+(`ledger_index_min`/`max`) and page them concurrently over HTTP, up to the governor cap
+— ~N× on this workload. Each shard keeps its own resume marker and checkpoint row, so a
+crash resumes every shard from its last page; holders are recorded per page as today.
+Coverage is claimed only once **all** shards complete (the floor/high-water rules of
+ADR-013 unchanged). Choose N from the range size (one shard for a short heal, up to the
+cap for a from-genesis sweep) so small sweeps do not pay the coordination cost.
+
+**Implications.**
+
+- `backfill_job` gains a shard dimension (or a child table) — a job's progress is the
+  sum of its shards, and the dashboard progress needs to read it that way.
+- The cooperative stop (ADR-018) is per page, so it applies per shard unchanged.
+- Idempotent ingest already tolerates two shards touching the same transaction at a
+  window boundary; the boundary rule (`min ≤ ledger < max`) should still be exact.
+- The per-holder `BackfillWorker` and the gap heal have the same serial-chain shape, but
+  their ranges are small; leave them alone unless a heal ever spans a large gap.
+
+---
+
 ## Related open questions (from the ADRs)
 
 - **Upstream replacement** before any real filing — [ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md).

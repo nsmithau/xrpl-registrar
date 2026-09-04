@@ -8,13 +8,13 @@ Clio attaches a `warnings` array to responses, with id `2001` declaring "this is
 
 ## Decision
 
-Continue emitting id `2001` **unchanged**. Add a *separate* warning under a new id flagging that this is a filtered archive. Use a documented provisional high id and propose a registered id to XRPLF.
+Continue emitting id `2001` **unchanged**. Add a _separate_ warning under a new id flagging that this is a filtered archive. Use a documented provisional high id and propose a registered id to XRPLF.
 
 **As implemented:** the filtered-archive warning is id `65001` and is a compact marker with **no** `details` — the full tracked scope is returned only where it is actionable, in the `notInArchive` error's `details` (ADR-005), rather than on every response. Sibling provisional ids in the same range: `65002` (response forwarded upstream, not archive-sourced), `65003` (requested range exceeds guaranteed coverage), `65004` (`gateway_balances` does not report the issuer's own holdings — ADR-017).
 
 ## Rationale
 
-The API documentation states explicitly: *"Do not write software that relies on the contents of this message; use the `id` (and `details`, if applicable) to identify the warning instead."* Shipping id 2001 with rewritten prose therefore gives correctly-written clients no signal at all, while breaking incorrectly-written clients that string-match. It is the worst of both.
+The API documentation states explicitly: _"Do not write software that relies on the contents of this message; use the `id` (and `details`, if applicable) to identify the warning instead."_ Shipping id 2001 with rewritten prose therefore gives correctly-written clients no signal at all, while breaking incorrectly-written clients that string-match. It is the worst of both.
 
 Keeping 2001 is also substantively correct: we serve only validated data and carry the same `ledger_index: current` caveat, so client code paths that branch on Clio behaviour will take the right path against us.
 

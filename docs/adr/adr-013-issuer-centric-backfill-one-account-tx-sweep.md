@@ -62,8 +62,8 @@ reclaim and claims no coverage.
   a cross-check primitive; the issuer sweep subsumes them for the common case and
   is strictly cheaper than traversal.
 - **Defence in depth vs ADR-012's hedge.** ADR-012 retained holder subscriptions
-  because "a holder-to-holder transfer need not *touch* the issuer." The new
-  evidence shows such transfers still *appear in the issuer's `account_tx`*, so
+  because "a holder-to-holder transfer need not _touch_ the issuer." The new
+  evidence shows such transfers still _appear in the issuer's `account_tx`_, so
   the issuer sweep is complete for backfill/heal. The live tail nonetheless keeps
   the holder subscriptions (holders ∪ issuers) — cheap insurance against an
   indexing edge case — so the assumption is load-bearing only for the historical
@@ -73,7 +73,7 @@ reclaim and claims no coverage.
   so it never mistakes an issuer job for a holder job.
 - **The live tail uses the same issuance-scoped filter** (`issuanceScope` →
   `holdersInMeta`), not the older account-scoped `affectedAccounts`. Subscribing
-  to a holder delivers *all* of its activity, and the account-scoped filter
+  to a holder delivers _all_ of its activity, and the account-scoped filter
   ingested any transaction touching a subscribed account — so a tracked holder's
   unrelated `TrustSet`s, XRP payments, and other tokens were archived as noise.
   All three ingest paths (backfill, gap heal, tail) now ingest a transaction only
@@ -85,8 +85,8 @@ reclaim and claims no coverage.
 
 ## Options Considered
 
-| Option | Verdict |
-|--------|---------|
-| Per-holder `account_tx` backfill *(previous)* | Rejected. O(holders) sweeps; re-fetches what the discovery sweep already saw; rate-limited on a shared upstream. |
-| **Issuer `account_tx` sweep** *(chosen)* | O(in-scope transactions). Discovery and backfill in one pass; one sweep covers every issuance on a shared issuer. |
-| Per-ledger `ledger` fetch over full history | Rejected. O(all ledgers since issuance); enormous for a token created long ago. |
+| Option                                        | Verdict                                                                                                           |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Per-holder `account_tx` backfill _(previous)_ | Rejected. O(holders) sweeps; re-fetches what the discovery sweep already saw; rate-limited on a shared upstream.  |
+| **Issuer `account_tx` sweep** _(chosen)_      | O(in-scope transactions). Discovery and backfill in one pass; one sweep covers every issuance on a shared issuer. |
+| Per-ledger `ledger` fetch over full history   | Rejected. O(all ledgers since issuance); enormous for a token created long ago.                                   |

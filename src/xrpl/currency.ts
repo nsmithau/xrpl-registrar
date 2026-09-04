@@ -6,9 +6,9 @@ import { hexToBytes } from "../util/hex.js";
  * Normalise an XRPL currency code to its human string.
  *
  * Standard codes are 3 ASCII characters. Codes longer than 3 characters (e.g.
- * `RLUSD`) are carried on the wire as a 40-hex-char (20-byte) value, ASCII with
+ * `TOKEN`) are carried on the wire as a 40-hex-char (20-byte) value, ASCII with
  * trailing NUL padding. This returns the readable form either way, so callers
- * can compare against a plain string like `"RLUSD"`.
+ * can compare against a plain string like `"TOKEN"`.
  */
 export function currencyToString(code: string): string {
   if (code.length === 3) return code;
@@ -40,7 +40,7 @@ export function currencyToWire(code: string): string {
 /**
  * Normalise an operator-supplied IOU currency for storage.
  *
- * Accepts either the readable code (`RLUSD`, `USD`) or the 40-hex on-wire form
+ * Accepts either the readable code (`TOKEN`, `USD`) or the 40-hex on-wire form
  * (`524C55…`) and returns the readable code the archive compares ledger data
  * against — so a pasted hex still matches. Throws on an empty, over-long, or
  * reserved (`XRP`) code, so a bad registration fails loudly at the door instead

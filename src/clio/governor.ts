@@ -162,7 +162,8 @@ export class Governor {
     this.#consecutivePenalties += 1;
     this.#totalPenalties += 1;
 
-    const step = this.#opts.minBackoffMs * this.#opts.backoffFactor ** (this.#consecutivePenalties - 1);
+    const step =
+      this.#opts.minBackoffMs * this.#opts.backoffFactor ** (this.#consecutivePenalties - 1);
     const backoffMs = Math.min(this.#opts.maxBackoffMs, Math.round(step));
     this.#currentBackoffMs = backoffMs;
 

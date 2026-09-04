@@ -89,11 +89,18 @@ export class Reconciler {
     const reconstructed = new Map(holders.map((h) => [h.account, BigInt(h.mpt_amount)]));
 
     const inScope = await this.#inScope(issuanceId);
-    const discrepancies = compareBalances(restrict(derived, inScope), restrict(reconstructed, inScope));
+    const discrepancies = compareBalances(
+      restrict(derived, inScope),
+      restrict(reconstructed, inScope),
+    );
     return this.#record(issuanceId, discrepancies);
   }
 
-  async runIou(issuanceId: number, currency: string, issuer: string): Promise<ReconciliationReport> {
+  async runIou(
+    issuanceId: number,
+    currency: string,
+    issuer: string,
+  ): Promise<ReconciliationReport> {
     const derived = await new BalanceDeltaRepository(this.#db).decimalBalanceByAccount(issuanceId);
 
     const { rows } = await this.#db.query<MetaRow>(

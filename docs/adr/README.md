@@ -4,7 +4,7 @@ Architecture decisions taken during design, August 2026. Each records the option
 
 **Read this before revisiting a design choice.** Several of these look like obvious simplifications from inside the code. They were considered and rejected for reasons that are invisible at the call site. Disagreeing is legitimate — superseding an ADR explicitly is the way to do it.
 
-Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted in the table — ADR-003 carries a mandatory review point (replace the public upstream before any real filing), ADR-007's default ingest path is superseded by ADR-013, and ADR-011 was amended on 2026-08-19 (Apache-2.0 → ISC).
+Deciders throughout: nsmithau. Status of all: **Accepted** unless noted in the table — ADR-003 carries a mandatory review point (replace the public upstream before any real filing), ADR-007's default ingest path is superseded by ADR-013, and ADR-011 was amended on 2026-08-19 (Apache-2.0 → ISC).
 
 ---
 

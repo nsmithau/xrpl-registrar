@@ -27,7 +27,13 @@ describe("backfillGap", () => {
       return { transactions: [] }; // empty: exercise the request shape, not decoding
     });
 
-    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 900 }, () => []);
+    const n = await backfillGap(
+      client,
+      db,
+      ["rIssuer"],
+      { fromLedger: 500, toLedger: 900 },
+      () => [],
+    );
 
     expect(n).toBe(0);
     // A single account_tx call bracketed by the gap range — independent of how
@@ -49,7 +55,13 @@ describe("backfillGap", () => {
     });
 
     // Three tracked MPTs sharing one issuer; a second issuer for a fourth.
-    await backfillGap(client, db, ["rIssuerA", "rIssuerB"], { fromLedger: 1, toLedger: 10 }, () => []);
+    await backfillGap(
+      client,
+      db,
+      ["rIssuerA", "rIssuerB"],
+      { fromLedger: 1, toLedger: 10 },
+      () => [],
+    );
 
     expect(accounts.sort()).toEqual(["rIssuerA", "rIssuerB"]); // one call each, not per-MPT
   });
@@ -59,7 +71,9 @@ describe("backfillGap", () => {
     const client = fakeReader(() => {
       calls += 1;
       // Two pages: first returns a marker, second (no marker) ends the sweep.
-      return calls === 1 ? { transactions: [], marker: { ledger: 5, seq: 0 } } : { transactions: [] };
+      return calls === 1
+        ? { transactions: [], marker: { ledger: 5, seq: 0 } }
+        : { transactions: [] };
     });
 
     await backfillGap(client, db, ["rIssuer"], { fromLedger: 1, toLedger: 100 }, () => []);
@@ -71,12 +85,15 @@ describe("backfillGap", () => {
     const client = fakeReader(() => ({ transactions: [] }));
     const logs: Array<{ message: string; meta?: Record<string, unknown> }> = [];
     const logger = {
-      info: (message: string, meta?: Record<string, unknown>) => logs.push({ message, ...(meta ? { meta } : {}) }),
+      info: (message: string, meta?: Record<string, unknown>) =>
+        logs.push({ message, ...(meta ? { meta } : {}) }),
       warn: () => {},
       error: () => {},
     };
 
-    await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 800 }, () => [], { logger });
+    await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 800 }, () => [], {
+      logger,
+    });
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
@@ -120,14 +137,23 @@ describe("backfillGap", () => {
         : null;
 
     const seen: string[] = [];
-    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 700, toLedger: 701 }, () => [], {
-      mapEntry,
-      onEntry: (meta) => seen.push((meta as { tag: string }).tag),
-    });
+    const n = await backfillGap(
+      client,
+      db,
+      ["rIssuer"],
+      { fromLedger: 700, toLedger: 701 },
+      () => [],
+      {
+        mapEntry,
+        onEntry: (meta) => seen.push((meta as { tag: string }).tag),
+      },
+    );
 
     expect(n).toBe(1); // only the in-scope transaction
     expect(seen).toEqual(["m1"]); // onEntry ran for it, post-commit
-    const { rows } = await db.query<{ n: number | string }>("SELECT count(*)::int AS n FROM transactions");
+    const { rows } = await db.query<{ n: number | string }>(
+      "SELECT count(*)::int AS n FROM transactions",
+    );
     expect(Number(rows[0]!.n)).toBe(1);
   });
 });

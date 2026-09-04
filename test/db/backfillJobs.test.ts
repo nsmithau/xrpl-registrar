@@ -12,7 +12,10 @@ describe("BackfillJobRepository", () => {
   beforeEach(async () => {
     db = await openArchiveDatabase();
     jobs = new BackfillJobRepository(db);
-    const issuance = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" });
+    const issuance = await new IssuanceRepository(db).create({
+      kind: "mpt",
+      mptIssuanceId: "MPT_A",
+    });
     issuanceId = issuance.id;
     await db.query("INSERT INTO accounts (address) VALUES ($1), ($2)", ["rA", "rB"]);
   });

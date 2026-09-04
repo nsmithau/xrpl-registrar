@@ -5,7 +5,11 @@ import type { Database } from "../db/database.js";
 import { insertTransactionRowsMany } from "../db/repositories/transactions.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { type DecodedMeta, type DeriveDeltas, type TrackedIssuance } from "../reconcile/incremental.js";
+import {
+  type DecodedMeta,
+  type DeriveDeltas,
+  type TrackedIssuance,
+} from "../reconcile/incremental.js";
 
 import type { LedgerRange } from "./types.js";
 
@@ -32,7 +36,11 @@ export interface BackfillGapOptions {
   readonly pageLimit?: number;
   /** Override the entry → row mapping (defaults to decoding binary blobs and
    * scoping to tracked-issuance holders). Injectable for tests. */
-  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null;
+  readonly mapEntry?: (
+    entry: BinaryTxEntry,
+    issuer: string,
+    provenance: Provenance,
+  ) => MappedEntry | null;
 }
 
 /**
@@ -90,7 +98,10 @@ export async function backfillGap(
       if (batch.length === 0) continue;
 
       await db.transaction(async (t) => {
-        await insertTransactionRowsMany(t, batch.map((b) => b.row));
+        await insertTransactionRowsMany(
+          t,
+          batch.map((b) => b.row),
+        );
         for (const b of batch) {
           await deriveDeltas(t, b.row.hash, b.meta);
           count += 1;
@@ -123,10 +134,13 @@ async function mapPool<T>(
   fn: (item: T) => Promise<void>,
 ): Promise<void> {
   let next = 0;
-  const runners = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
-    while (next < items.length) {
-      await fn(items[next++]!);
-    }
-  });
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    async () => {
+      while (next < items.length) {
+        await fn(items[next++]!);
+      }
+    },
+  );
   await Promise.all(runners);
 }

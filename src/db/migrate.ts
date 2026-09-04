@@ -18,9 +18,7 @@ export async function runMigrations(
     );
   `);
 
-  const { rows } = await db.query<{ id: number | string }>(
-    "SELECT id FROM schema_migrations",
-  );
+  const { rows } = await db.query<{ id: number | string }>("SELECT id FROM schema_migrations");
   const applied = new Set(rows.map((r) => Number(r.id)));
 
   const pending = [...migrations].sort((a, b) => a.id - b.id).filter((m) => !applied.has(m.id));

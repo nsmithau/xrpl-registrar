@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openArchiveDatabase, type Database } from "../../src/db/index.js";
 import { LiveTail } from "../../src/livetail/liveTail.js";
-import type { LedgerRange, TailEvent, TailSource, TransactionEvent } from "../../src/livetail/types.js";
+import type {
+  LedgerRange,
+  TailEvent,
+  TailSource,
+  TransactionEvent,
+} from "../../src/livetail/types.js";
 
 const PROV = { sourceEndpoint: "wss://clio.example", fetchedAt: "2026-08-12T00:00:00.000Z" };
 
@@ -29,7 +34,9 @@ function source(events: TailEvent[]): TailSource {
 }
 
 async function count(db: Database, table: string): Promise<number> {
-  const { rows } = await db.query<{ n: number | string }>(`SELECT count(*)::bigint AS n FROM ${table}`);
+  const { rows } = await db.query<{ n: number | string }>(
+    `SELECT count(*)::bigint AS n FROM ${table}`,
+  );
   return Number(rows[0]!.n);
 }
 
@@ -81,7 +88,9 @@ describe("LiveTail", () => {
     ];
     const tail = new LiveTail({ db, source: source(events) });
     await tail.run();
-    const { rows } = await db.query<{ n: number | string }>("SELECT count(*)::bigint AS n FROM ledgers");
+    const { rows } = await db.query<{ n: number | string }>(
+      "SELECT count(*)::bigint AS n FROM ledgers",
+    );
     expect(Number(rows[0]!.n)).toBe(2);
   });
 
@@ -89,7 +98,11 @@ describe("LiveTail", () => {
     const seen: string[] = [];
     const tail = new LiveTail({
       db,
-      source: source([tx("T1", 100, ["rA"]), { type: "ledger", ledgerIndex: 100 }, tx("T2", 101, ["rA"])]),
+      source: source([
+        tx("T1", 100, ["rA"]),
+        { type: "ledger", ledgerIndex: 100 },
+        tx("T2", 101, ["rA"]),
+      ]),
       deriveDeltas: (_q, hash) => {
         seen.push(hash);
         return Promise.resolve();
@@ -103,7 +116,11 @@ describe("LiveTail", () => {
     const seen: string[] = [];
     const tail = new LiveTail({
       db,
-      source: source([tx("T1", 100, ["rA"]), { type: "ledger", ledgerIndex: 100 }, tx("T2", 101, ["rA"])]),
+      source: source([
+        tx("T1", 100, ["rA"]),
+        { type: "ledger", ledgerIndex: 100 },
+        tx("T2", 101, ["rA"]),
+      ]),
       onTransaction: (ev) => seen.push(ev.hash),
     });
     await tail.run();

@@ -42,10 +42,7 @@ describe("Governor concurrency", () => {
 describe("Governor global backoff", () => {
   it("escalates exponentially and caps at maxBackoffMs", () => {
     const clock = new FakeClock();
-    const g = new Governor(
-      { minBackoffMs: 1_000, maxBackoffMs: 8_000, backoffFactor: 2 },
-      clock,
-    );
+    const g = new Governor({ minBackoffMs: 1_000, maxBackoffMs: 8_000, backoffFactor: 2 }, clock);
 
     const steps = [1_000, 2_000, 4_000, 8_000, 8_000];
     for (const expected of steps) {

@@ -29,7 +29,6 @@ const ENDPOINT = process.env.CLIO_ENDPOINT?.trim();
 const LIVE = Boolean(ENDPOINT);
 
 if (!LIVE) {
-  // eslint-disable-next-line no-console
   console.info("[clio-smoke] skipped — set CLIO_ENDPOINT to a full-history Clio to run.");
 }
 

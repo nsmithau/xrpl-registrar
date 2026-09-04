@@ -15,17 +15,27 @@ const modified = (owner: string, mpt: string, prev: string | undefined, final: s
 const created = (owner: string, mpt: string, amount?: string) => ({
   CreatedNode: {
     LedgerEntryType: "MPToken",
-    NewFields: { Account: owner, MPTokenIssuanceID: mpt, ...(amount !== undefined ? { MPTAmount: amount } : {}) },
+    NewFields: {
+      Account: owner,
+      MPTokenIssuanceID: mpt,
+      ...(amount !== undefined ? { MPTAmount: amount } : {}),
+    },
   },
 });
 const deletedN = (owner: string, mpt: string, amount: string) => ({
-  DeletedNode: { LedgerEntryType: "MPToken", FinalFields: { Account: owner, MPTokenIssuanceID: mpt, MPTAmount: amount } },
+  DeletedNode: {
+    LedgerEntryType: "MPToken",
+    FinalFields: { Account: owner, MPTokenIssuanceID: mpt, MPTAmount: amount },
+  },
 });
 const meta = (nodes: unknown[]) => ({ AffectedNodes: nodes });
 
 describe("mptDeltas", () => {
   it("produces equal-and-opposite deltas for a transfer (absent Previous = 0)", () => {
-    const d = mptDeltas(meta([modified("rSend", MPT, "50", "40"), modified("rRecv", MPT, undefined, "10")]), MPT);
+    const d = mptDeltas(
+      meta([modified("rSend", MPT, "50", "40"), modified("rRecv", MPT, undefined, "10")]),
+      MPT,
+    );
     expect(d).toEqual([
       { account: "rSend", delta: -10n },
       { account: "rRecv", delta: 10n },
@@ -41,7 +51,9 @@ describe("mptDeltas", () => {
   });
 
   it("treats a deletion as removing the remaining balance", () => {
-    expect(mptDeltas(meta([deletedN("rA", MPT, "7")]), MPT)).toEqual([{ account: "rA", delta: -7n }]);
+    expect(mptDeltas(meta([deletedN("rA", MPT, "7")]), MPT)).toEqual([
+      { account: "rA", delta: -7n },
+    ]);
   });
 });
 

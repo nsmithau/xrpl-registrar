@@ -17,7 +17,7 @@ Mirror Clio's request and response shapes for a supported method set, at `api_ve
 **Pros:** Designed around the actual use case. No compatibility burden.
 **Cons:** Every consumer writes new client code, which directly undercuts the external-adoption objective.
 
-#### Option B: Mirror Clio *(chosen)*
+#### Option B: Mirror Clio _(chosen)_
 
 **Pros:** Existing xrpl.js code works by changing a URL. Yields a free correctness harness — the same request can be run against the registrar and upstream Clio and the responses diffed. Makes upstream pass-through natural, since the protocol is identical.
 **Cons:** Inherits Clio's quirks. Requires deciding deliberately where to deviate.

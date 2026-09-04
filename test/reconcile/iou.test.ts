@@ -50,9 +50,9 @@ describe("iouDeltas", () => {
   });
 
   it("handles decimal values exactly and skips unchanged balances", () => {
-    expect(iouDeltas(meta([mod(line("rHolder", ISS, "USD", "10.5"), "0.25")]), "USD", ISS)).toEqual([
-      { account: "rHolder", delta: "10.25" },
-    ]);
+    expect(iouDeltas(meta([mod(line("rHolder", ISS, "USD", "10.5"), "0.25")]), "USD", ISS)).toEqual(
+      [{ account: "rHolder", delta: "10.25" }],
+    );
     expect(iouDeltas(meta([mod(line("rHolder", ISS, "USD", "5"))]), "USD", ISS)).toEqual([]);
   });
 
@@ -74,9 +74,21 @@ describe("iouDeltas", () => {
 describe("toIouBalances", () => {
   it("reconstructs holder balances and excludes deleted lines", () => {
     const entries = [
-      { ledgerIndex: 1, transactionIndex: 0, meta: meta([mod(line("rH", ISS, "USD", "40"), "0", "L_H")]) },
-      { ledgerIndex: 2, transactionIndex: 0, meta: meta([mod(line("rGone", ISS, "USD", "10"), "0", "L_G")]) },
-      { ledgerIndex: 3, transactionIndex: 0, meta: meta([del(line("rGone", ISS, "USD", "0"), "L_G")]) },
+      {
+        ledgerIndex: 1,
+        transactionIndex: 0,
+        meta: meta([mod(line("rH", ISS, "USD", "40"), "0", "L_H")]),
+      },
+      {
+        ledgerIndex: 2,
+        transactionIndex: 0,
+        meta: meta([mod(line("rGone", ISS, "USD", "10"), "0", "L_G")]),
+      },
+      {
+        ledgerIndex: 3,
+        transactionIndex: 0,
+        meta: meta([del(line("rGone", ISS, "USD", "0"), "L_G")]),
+      },
     ];
     const balances = toIouBalances(entries, ISS, "USD");
     expect(balances.get("rH")?.toString()).toBe("40");
@@ -86,7 +98,12 @@ describe("toIouBalances", () => {
 
 describe("compareDecimalBalances", () => {
   it("agrees on equal decimals and flags differences", () => {
-    expect(compareDecimalBalances(new Map([["rA", new Big("10.5")]]), new Map([["rA", new Big("10.50")]]))).toEqual([]);
+    expect(
+      compareDecimalBalances(
+        new Map([["rA", new Big("10.5")]]),
+        new Map([["rA", new Big("10.50")]]),
+      ),
+    ).toEqual([]);
     expect(compareDecimalBalances(new Map([["rA", new Big("10.5")]]), new Map())).toEqual([
       { account: "rA", derived: "10.5", reconstructed: "0" },
     ]);
@@ -104,10 +121,28 @@ describe("BalanceDeltaRepository decimal sums", () => {
   });
 
   it("sums decimal deltas exactly", async () => {
-    const issuanceId = (await new IssuanceRepository(db).create({ kind: "iou", currency: "USD", issuerAccount: ISS })).id;
+    const issuanceId = (
+      await new IssuanceRepository(db).create({ kind: "iou", currency: "USD", issuerAccount: ISS })
+    ).id;
     const txns = new TransactionRepository(db);
-    await txns.ingest({ hash: "H1", ledgerIndex: 1, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rH"] });
-    await txns.ingest({ hash: "H2", ledgerIndex: 2, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" }, accounts: ["rH"] });
+    await txns.ingest({
+      hash: "H1",
+      ledgerIndex: 1,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rH"],
+    });
+    await txns.ingest({
+      hash: "H2",
+      ledgerIndex: 2,
+      txType: "Payment",
+      txBlob: new Uint8Array([3]),
+      metaBlob: new Uint8Array([4]),
+      provenance: { sourceEndpoint: "x", fetchedAt: "2026-01-01T00:00:00.000Z" },
+      accounts: ["rH"],
+    });
     const repo = new BalanceDeltaRepository(db);
     await repo.upsertMany(issuanceId, [
       { hash: "H1", address: "rH", delta: "10.25" },

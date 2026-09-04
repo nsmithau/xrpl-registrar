@@ -58,7 +58,9 @@ describe("lazyLedgerTimeResolver", () => {
 
   it("returns null for a time before the archive's earliest ledger", async () => {
     const client = fakeReader((req: ClioRequest) =>
-      req.command === "ledger" ? { ledger: { close_time_iso: isoFor(Number(req.ledger_index)) } } : {},
+      req.command === "ledger"
+        ? { ledger: { close_time_iso: isoFor(Number(req.ledger_index)) } }
+        : {},
     );
     const resolve = lazyLedgerTimeResolver(client, db);
     const at = await resolve(new Date(BASE + 50 * 1000).toISOString()); // before ledger 100
@@ -68,7 +70,10 @@ describe("lazyLedgerTimeResolver", () => {
   it("returns null when the archive holds no transactions", async () => {
     const empty = await openArchiveDatabase();
     try {
-      const resolve = lazyLedgerTimeResolver(fakeReader(() => ({})), empty);
+      const resolve = lazyLedgerTimeResolver(
+        fakeReader(() => ({})),
+        empty,
+      );
       expect(await resolve(isoFor(150))).toBeNull();
     } finally {
       await empty.close();

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { currencyToString, currencyToWire, normalizeCurrency } from "../../src/xrpl/currency.js";
 
-// "RLUSD" as the 40-hex on-wire form (ASCII + trailing NUL padding).
-const RLUSD_HEX = "524C555344000000000000000000000000000000";
+// "TOKEN" as the 40-hex on-wire form (ASCII + trailing NUL padding).
+const TOKEN_HEX = "544F4B454E000000000000000000000000000000";
 
 describe("currencyToString", () => {
   it("passes standard 3-char codes through unchanged", () => {
@@ -11,11 +11,11 @@ describe("currencyToString", () => {
   });
 
   it("decodes a 40-hex non-standard code to its readable form", () => {
-    expect(currencyToString(RLUSD_HEX)).toBe("RLUSD");
+    expect(currencyToString(TOKEN_HEX)).toBe("TOKEN");
   });
 
   it("leaves an already-readable non-standard code unchanged", () => {
-    expect(currencyToString("RLUSD")).toBe("RLUSD");
+    expect(currencyToString("TOKEN")).toBe("TOKEN");
   });
 });
 
@@ -25,27 +25,27 @@ describe("currencyToWire", () => {
   });
 
   it("encodes a non-standard code as its 40-hex on-wire form", () => {
-    expect(currencyToWire("RLUSD")).toBe(RLUSD_HEX);
+    expect(currencyToWire("TOKEN")).toBe(TOKEN_HEX);
     expect(currencyToWire("FUSD")).toBe("4655534400000000000000000000000000000000");
   });
 
   it("round-trips with currencyToString", () => {
-    expect(currencyToString(currencyToWire("RLUSD"))).toBe("RLUSD");
+    expect(currencyToString(currencyToWire("TOKEN"))).toBe("TOKEN");
   });
 });
 
 describe("normalizeCurrency", () => {
   it("accepts a readable code as-is", () => {
-    expect(normalizeCurrency("RLUSD")).toBe("RLUSD");
+    expect(normalizeCurrency("TOKEN")).toBe("TOKEN");
     expect(normalizeCurrency("USD")).toBe("USD");
   });
 
   it("normalizes the 40-hex on-wire form to the readable code", () => {
-    expect(normalizeCurrency(RLUSD_HEX)).toBe("RLUSD");
+    expect(normalizeCurrency(TOKEN_HEX)).toBe("TOKEN");
   });
 
   it("trims surrounding whitespace", () => {
-    expect(normalizeCurrency("  RLUSD  ")).toBe("RLUSD");
+    expect(normalizeCurrency("  TOKEN  ")).toBe("TOKEN");
   });
 
   it("rejects an empty code", () => {

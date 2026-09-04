@@ -135,10 +135,16 @@ async function resolveLedger(
     return { ledger };
   }
   if (fallback !== undefined) return { ledger: fallback };
-  return { error: `'${ledgerKey}' (a number or "validated") or '${timeKey}' (ISO timestamp) is required` };
+  return {
+    error: `'${ledgerKey}' (a number or "validated") or '${timeKey}' (ISO timestamp) is required`,
+  };
 }
 
-async function inIssuanceScope(db: Database, issuanceId: number, address: string): Promise<boolean> {
+async function inIssuanceScope(
+  db: Database,
+  issuanceId: number,
+  address: string,
+): Promise<boolean> {
   const { rows } = await db.query(
     "SELECT 1 FROM account_issuance WHERE issuance_id = $1 AND address = $2 LIMIT 1",
     [issuanceId, address],
@@ -212,7 +218,13 @@ async function resolveRange(
   resolveTime: LedgerTimeResolver,
 ): Promise<
   | { result: Record<string, unknown> }
-  | { issuance: ResolvedIssuance; from: number; to: number; params: unknown[]; accountFilter: string }
+  | {
+      issuance: ResolvedIssuance;
+      from: number;
+      to: number;
+      params: unknown[];
+      accountFilter: string;
+    }
 > {
   const issuance = await resolveIssuance(db, req);
   if (!issuance) return { result: notInArchive("Issuance", await scope.summarize()) };
@@ -250,7 +262,12 @@ export async function handleTransactions(
   const r = await resolveRange(db, scope, req, resolveTime);
   if ("result" in r) return { result: r.result };
 
-  const { rows } = await db.query<{ address: string; delta: string; ledger: number | string; hash: string }>(
+  const { rows } = await db.query<{
+    address: string;
+    delta: string;
+    ledger: number | string;
+    hash: string;
+  }>(
     `SELECT bd.address AS address, bd.delta AS delta, t.ledger_index AS ledger, bd.hash AS hash
      FROM balance_deltas bd
      JOIN transactions t ON t.hash = bd.hash

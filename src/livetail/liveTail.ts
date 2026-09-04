@@ -84,7 +84,10 @@ export class LiveTail {
       if (!this.#running) break;
       if (ev.type === "ledger") {
         if (ev.closeTimeIso) {
-          await this.#ledgerTimes.record({ ledgerIndex: ev.ledgerIndex, closeTimeIso: ev.closeTimeIso });
+          await this.#ledgerTimes.record({
+            ledgerIndex: ev.ledgerIndex,
+            closeTimeIso: ev.closeTimeIso,
+          });
         }
         const gap = this.#gaps.observe(ev.ledgerIndex);
         if (gap) {

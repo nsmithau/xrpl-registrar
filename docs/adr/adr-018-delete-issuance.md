@@ -1,6 +1,6 @@
 # ADR-018: Deletable issuances — a bounded exception to append-only
 
-**Status:** Accepted — implemented. Decider: Neil Smith.
+**Status:** Accepted — implemented. Decider: nsmithau.
 
 ## Context
 
@@ -11,7 +11,7 @@ That is right for the data an issuer is _required to keep_.
 
 But operators need to undo mistakes and reclaim space: an issuance registered
 with the wrong id, a test issuance, or a mega-issuer whose from-genesis sweep is
-abandoned (e.g. the testnet RLUSD issuer — millions of transactions). Without a
+abandoned (e.g. a testnet stablecoin issuer with millions of transactions). Without a
 delete, the only recourse is wiping the whole database. So we add a deliberate,
 scoped exception.
 

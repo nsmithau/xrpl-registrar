@@ -13,14 +13,8 @@ export {
   type NewIouIssuance,
   type IssuanceRecord,
 } from "./repositories/issuances.js";
-export {
-  TransactionRepository,
-  type IngestTransaction,
-} from "./repositories/transactions.js";
-export {
-  AccountRepository,
-  type AccountIssuanceRow,
-} from "./repositories/accounts.js";
+export { TransactionRepository, type IngestTransaction } from "./repositories/transactions.js";
+export { AccountRepository, type AccountIssuanceRow } from "./repositories/accounts.js";
 export { insertTransactionRows, insertTransactionRowsMany } from "./repositories/transactions.js";
 export {
   BackfillJobRepository,

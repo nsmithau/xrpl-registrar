@@ -38,7 +38,10 @@ export async function ensureLedgerCloseTimes(
   for (const ledgerIndex of unique) {
     if (known.has(ledgerIndex)) continue;
     try {
-      const res = await client.request<{ ledger?: unknown }>({ command: "ledger", ledger_index: ledgerIndex });
+      const res = await client.request<{ ledger?: unknown }>({
+        command: "ledger",
+        ledger_index: ledgerIndex,
+      });
       const iso = asString(asRecord(res.result.ledger)?.["close_time_iso"]);
       if (iso) await ledgers.record({ ledgerIndex, closeTimeIso: iso });
     } catch {
@@ -91,7 +94,10 @@ export function lazyLedgerTimeResolver(client: ClioReader, db: Database): Ledger
         );
       let { rows } = await compare();
       if (rows.length === 0) {
-        const res = await client.request<{ ledger?: unknown }>({ command: "ledger", ledger_index: mid });
+        const res = await client.request<{ ledger?: unknown }>({
+          command: "ledger",
+          ledger_index: mid,
+        });
         const closeIso = asString(asRecord(res.result.ledger)?.["close_time_iso"]);
         if (!closeIso) return null;
         await ledgers.record({ ledgerIndex: mid, closeTimeIso: closeIso });

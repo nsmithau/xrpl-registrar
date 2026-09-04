@@ -25,7 +25,12 @@ describe("resolveStrategy", () => {
 
   it("honours an explicit override", () => {
     expect(
-      resolveStrategy({ kind: "mpt", mptIssuanceId: "A", requiresAuth: true, strategy: "traversal" }),
+      resolveStrategy({
+        kind: "mpt",
+        mptIssuanceId: "A",
+        requiresAuth: true,
+        strategy: "traversal",
+      }),
     ).toBe("traversal");
     expect(resolveStrategy({ kind: "iou", currency: "USD", issuer: "rI", strategy: "auto" })).toBe(
       "trustline",

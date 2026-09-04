@@ -374,7 +374,7 @@
               "host": ["{{readUrl}}"],
               "path": [""]
             },
-            "description": "An IOU holder's balance as of a ledger, identified by currency + issuer. Currency accepts the readable code (USD, RLUSD) or the 40-hex form."
+            "description": "An IOU holder's balance as of a ledger, identified by currency + issuer. Currency accepts the readable code (USD, TOKEN) or the 40-hex form."
           },
           "event": [
             {

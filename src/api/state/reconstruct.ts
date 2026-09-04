@@ -118,8 +118,7 @@ export interface MptHolder {
 export function toMptHolders(entries: readonly MetaEntry[], mptIssuanceId: string): MptHolder[] {
   const objects = latestObjects(
     entries,
-    (type, fields) =>
-      type === "MPToken" && asString(fields["MPTokenIssuanceID"]) === mptIssuanceId,
+    (type, fields) => type === "MPToken" && asString(fields["MPTokenIssuanceID"]) === mptIssuanceId,
   );
   const holders: MptHolder[] = [];
   for (const o of objects) {
@@ -163,7 +162,9 @@ function negate(value: string): string {
 export function toAccountLines(entries: readonly MetaEntry[], account: string): AccountLine[] {
   const objects = latestObjects(entries, (type, fields) => {
     if (type !== "RippleState") return false;
-    return amountIssuer(fields["HighLimit"]) === account || amountIssuer(fields["LowLimit"]) === account;
+    return (
+      amountIssuer(fields["HighLimit"]) === account || amountIssuer(fields["LowLimit"]) === account
+    );
   });
 
   const lines: AccountLine[] = [];
@@ -175,7 +176,8 @@ export function toAccountLines(entries: readonly MetaEntry[], account: string): 
     const rawBalance = amountValue(o.fields["Balance"]);
     lines.push({
       // From this account's perspective the counterparty is the other side.
-      account: (isLow ? amountIssuer(o.fields["HighLimit"]) : amountIssuer(o.fields["LowLimit"])) ?? "",
+      account:
+        (isLow ? amountIssuer(o.fields["HighLimit"]) : amountIssuer(o.fields["LowLimit"])) ?? "",
       currency,
       balance: isLow ? rawBalance : negate(rawBalance),
       limit: amountValue(isLow ? o.fields["LowLimit"] : o.fields["HighLimit"]),

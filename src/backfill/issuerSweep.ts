@@ -8,11 +8,19 @@ import {
   completeJob,
   type BackfillJob,
 } from "../db/repositories/backfillJobs.js";
-import { insertTransactionRowsMany, type IngestTransaction } from "../db/repositories/transactions.js";
+import {
+  insertTransactionRowsMany,
+  type IngestTransaction,
+} from "../db/repositories/transactions.js";
 import { asRecord } from "../discovery/fields.js";
 import type { ClioReader } from "../discovery/types.js";
 import { nullLogger, type Logger } from "../logging/logger.js";
-import { holdersInMeta, type DecodedMeta, type DeriveDeltas, type TrackedIssuance } from "../reconcile/incremental.js";
+import {
+  holdersInMeta,
+  type DecodedMeta,
+  type DeriveDeltas,
+  type TrackedIssuance,
+} from "../reconcile/incremental.js";
 import { hexToBytes } from "../util/hex.js";
 
 import { accountTxPages, type BinaryTxEntry } from "./pages.js";
@@ -74,7 +82,11 @@ export interface IssuerBackfillOptions {
   readonly pageLimit?: number;
   /** Override the entry → row mapping (defaults to decoding binary blobs and
    * scoping to tracked-issuance holders). Injectable for tests. */
-  readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null;
+  readonly mapEntry?: (
+    entry: BinaryTxEntry,
+    issuer: string,
+    provenance: Provenance,
+  ) => MappedEntry | null;
   /** Cooperative stop, polled at the top of each page's DB transaction (so a
    * true answer is seen before any further row is written). When it returns
    * true the sweep ends without completing the job or claiming coverage —
@@ -139,7 +151,8 @@ export async function runIssuerBackfill(
         for (const account of row.accounts) {
           if (account === issuer) continue;
           const prev = firstLedger.get(account);
-          if (prev === undefined || row.ledgerIndex < prev) firstLedger.set(account, row.ledgerIndex);
+          if (prev === undefined || row.ledgerIndex < prev)
+            firstLedger.set(account, row.ledgerIndex);
         }
       }
       const isFinal = page.marker === undefined;
@@ -153,7 +166,10 @@ export async function runIssuerBackfill(
           return;
         }
         if (batch.length > 0) {
-          await insertTransactionRowsMany(t, batch.map((b) => b.row));
+          await insertTransactionRowsMany(
+            t,
+            batch.map((b) => b.row),
+          );
           for (const b of batch) {
             await deriveDeltas(t, b.row.hash, b.meta);
             ingested += 1;
@@ -161,7 +177,8 @@ export async function runIssuerBackfill(
         }
         // Record holders discovered on this page atomically with the checkpoint,
         // so a resume never loses a discovery made before the crash.
-        for (const [holder, ledger] of firstLedger) await recordHolder(t, issuance.id, holder, ledger);
+        for (const [holder, ledger] of firstLedger)
+          await recordHolder(t, issuance.id, holder, ledger);
         await checkpointJob(t, job.id, page.marker, batch.length);
         if (isFinal) {
           await claimCoverage(t, issuance.id, issuer, fromLedger, highWater);
@@ -191,7 +208,12 @@ export async function runIssuerBackfill(
 
 /** Upsert a discovered holder (earliest ledger wins), atomic with the caller's
  * transaction. Mirrors `AccountRepository.recordDiscovered` for one holder. */
-async function recordHolder(t: Queryable, issuanceId: number, address: string, ledger: number): Promise<void> {
+async function recordHolder(
+  t: Queryable,
+  issuanceId: number,
+  address: string,
+  ledger: number,
+): Promise<void> {
   await t.query(
     `INSERT INTO accounts (address, first_seen_ledger) VALUES ($1, $2)
      ON CONFLICT (address) DO UPDATE

@@ -8,7 +8,7 @@ After the initial load, the archive must stay current: pick up new holders, keep
 derived balances accurate, and report honest coverage. The first implementation
 did this with a periodic re-discovery pass (`REDISCOVERY_INTERVAL_MS`) that re-ran
 the whole pipeline per issuance — full discovery scan **and** a full re-derivation
-of `balance_deltas` over *every* archived transaction.
+of `balance_deltas` over _every_ archived transaction.
 
 This did not scale. For an IOU issuance with ~4.4k accounts and ~2.2M
 transactions, each pass re-decoded all 2.2M transaction metadata blobs every
@@ -37,9 +37,9 @@ O(history) sweep:
 Periodic re-discovery is demoted to a **safety-net** backstop (on by default at a
 long interval; `REDISCOVERY_INTERVAL_MS=0` disables it).
 
-**Coverage, as implemented:** the advancing window is the *issuance-level* one —
+**Coverage, as implemented:** the advancing window is the _issuance-level_ one —
 `max(backfill start) … tail high-water` — used by the admin status and by
-`gateway_balances`. The *per-account* range served by `account_tx`,
+`gateway_balances`. The _per-account_ range served by `account_tx`,
 `account_info` and `archive_balance_at` still comes from the `coverage` table,
 whose rows are written once per completed sweep (ADR-013), so an account's
 `ledger_index_max` reflects its last backfill/heal snapshot rather than the tail
@@ -56,10 +56,10 @@ re-scan is not required to find them.
 
 ## Options Considered
 
-| Option | Verdict |
-|--------|---------|
-| Periodic full re-derivation + re-scan | Rejected. O(entire history) per pass; does not scale; leaves reporting stale between passes. |
-| **Tail-driven incremental** *(chosen)* | Deltas/discovery/coverage maintained as transactions land. Real-time, scales with *new* activity not total history. |
+| Option                                 | Verdict                                                                                                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Periodic full re-derivation + re-scan  | Rejected. O(entire history) per pass; does not scale; leaves reporting stale between passes.                        |
+| **Tail-driven incremental** _(chosen)_ | Deltas/discovery/coverage maintained as transactions land. Real-time, scales with _new_ activity not total history. |
 
 Holder subscriptions are **retained** alongside the issuer, not replaced by it: a
 holder-to-holder MPT transfer need not touch the issuer, so watching each holder
@@ -69,7 +69,7 @@ is required for delta completeness and secondary-transfer discovery.
 
 - Ingest paths take a `deriveDeltas` hook (atomic with the insert); `LiveTail`
   gains a post-commit `onTransaction` hook for streaming discovery.
-- Initial load is *faster* too: derivation folds into the single backfill pass
+- Initial load is _faster_ too: derivation folds into the single backfill pass
   instead of a second full decode.
 - A new holder appearing during a tail gap is now also discovered: the gap heal
   runs streaming discovery (`onEntry` → the same holder-detection) over the
@@ -87,6 +87,6 @@ is required for delta completeness and secondary-transfer discovery.
   paginated sweep. `holdersInMeta` is the in-scope filter and also associates the
   transaction with the holders it touches, so discovery and delta derivation are
   unchanged. (Holder-level `account_tx` remains how each newly-discovered holder's
-  *pre-gap* history is backfilled — the issuer sweep only covers the gap window.)
+  _pre-gap_ history is backfilled — the issuer sweep only covers the gap window.)
 - `REDISCOVERY_INTERVAL_MS` becomes a backstop cadence, not the primary mechanism
   (see the default chosen in the env/README).

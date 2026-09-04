@@ -7,12 +7,7 @@ import { resolveStrategy } from "./resolve.js";
 import { authorizationScan } from "./strategies/authScan.js";
 import { traversal } from "./strategies/traversal.js";
 import { trustlineScan } from "./strategies/trustlineScan.js";
-import type {
-  ClioReader,
-  DiscoveredAccount,
-  DiscoveryResult,
-  DiscoveryTarget,
-} from "./types.js";
+import type { ClioReader, DiscoveredAccount, DiscoveryResult, DiscoveryTarget } from "./types.js";
 
 export interface DiscoverOptions {
   /**
@@ -26,9 +21,7 @@ export interface DiscoverOptions {
 }
 
 function sortByAddress(accounts: DiscoveredAccount[]): DiscoveredAccount[] {
-  return [...accounts].sort((a, b) =>
-    a.address < b.address ? -1 : a.address > b.address ? 1 : 0,
-  );
+  return [...accounts].sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
 }
 
 /**
@@ -48,7 +41,8 @@ export async function discover(
   options: DiscoverOptions = {},
 ): Promise<DiscoveryResult> {
   const logger = options.logger ?? nullLogger;
-  const label = target.kind === "iou" ? `${target.currency}/${target.issuer}` : target.mptIssuanceId;
+  const label =
+    target.kind === "iou" ? `${target.currency}/${target.issuer}` : target.mptIssuanceId;
   const startedMs = Date.now();
   logger.info("discovery started", { kind: target.kind, target: label });
 

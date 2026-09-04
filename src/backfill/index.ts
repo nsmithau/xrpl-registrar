@@ -5,5 +5,10 @@ export {
   type IssuerBackfillOptions,
   type IssuerBackfillResult,
 } from "./issuerSweep.js";
-export { accountTxPages, type BackfillPage, type BinaryTxEntry, type AccountTxPageQuery } from "./pages.js";
+export {
+  accountTxPages,
+  type BackfillPage,
+  type BinaryTxEntry,
+  type AccountTxPageQuery,
+} from "./pages.js";
 export { mapBinaryEntry } from "./mapEntry.js";

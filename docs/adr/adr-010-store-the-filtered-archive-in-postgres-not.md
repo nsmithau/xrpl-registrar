@@ -14,25 +14,26 @@ Store the archive in **Postgres**. For development, test, and small single-issue
 
 ## The point that settles it
 
-**We integrate with Clio over its API, never its database.** We read `account_tx`/`tx`/`account_info`/etc. and persist our own copy; we never touch Clio's Scylla tables. So matching Clio's backend buys **zero interop benefit**. The decision therefore reduces to "what fits *our* data and *our* queries" — and on that axis Clio and this service are near-opposites.
+**We integrate with Clio over its API, never its database.** We read `account_tx`/`tx`/`account_info`/etc. and persist our own copy; we never touch Clio's Scylla tables. So matching Clio's backend buys **zero interop benefit**. The decision therefore reduces to "what fits _our_ data and _our_ queries" — and on that axis Clio and this service are near-opposites.
 
 ## Options Considered
 
 #### Option A: ScyllaDB / Cassandra (match Clio)
 
-| Dimension | Assessment |
-|-----------|------------|
-| Scale fit | Built for the *entire* ledger — 100M+ ledgers, billions of transactions, wide-column lookups by hash/account/sequence. |
-| Query fit | No joins; each query pattern needs its own denormalised table, precomputed at write time. |
-| Ops | Multi-node cluster, repair, compaction tuning — heavy for a self-hosted single-issuer tool. |
-| Consistency | Eventually consistent; multi-row atomicity only via awkward lightweight transactions. |
+| Dimension   | Assessment                                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Scale fit   | Built for the _entire_ ledger — 100M+ ledgers, billions of transactions, wide-column lookups by hash/account/sequence. |
+| Query fit   | No joins; each query pattern needs its own denormalised table, precomputed at write time.                              |
+| Ops         | Multi-node cluster, repair, compaction tuning — heavy for a self-hosted single-issuer tool.                            |
+| Consistency | Eventually consistent; multi-row atomicity only via awkward lightweight transactions.                                  |
 
-**Rejected.** Every strength is a strength *at ledger scale*, which is precisely the scale this project filters away.
+**Rejected.** Every strength is a strength _at ledger scale_, which is precisely the scale this project filters away.
 
-#### Option B: Postgres *(chosen)*
+#### Option B: Postgres _(chosen)_
 
 **Pros:**
-- **Scale is inverted.** This is a *filtered* archive: one issuer plus its holders — thousands to low-millions of rows, not billions. That is squarely Postgres territory.
+
+- **Scale is inverted.** This is a _filtered_ archive: one issuer plus its holders — thousands to low-millions of rows, not billions. That is squarely Postgres territory.
 - **Our queries are relational/analytical.** Coverage ranges, membership-vs-completeness as separate claims, balance-at-ledger/time, aggregated deltas over a period, diffing two discovery strategies, reconciliation checkpoints — all want joins, range queries, secondary indexes, and SQL.
 - **Correctness wants ACID.** Idempotent ingest keyed on `(hash, address)`, checkpoint-after-each-`marker` resumability, and the fail-closed guarantees elsewhere in this record all lean on transactions and unique constraints.
 - **Operability.** Issuers self-host this ahead of a filing deadline. One Postgres (or an embedded PGlite file) is far easier to run, back up, and audit than a Scylla ring. PGlite gives the real dialect in-process, so dev/test and production run the same SQL.

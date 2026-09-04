@@ -15,11 +15,28 @@ describe("BalanceDeltaRepository", () => {
   beforeEach(async () => {
     db = await openArchiveDatabase();
     repo = new BalanceDeltaRepository(db);
-    issuanceId = (await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" })).id;
+    issuanceId = (await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" }))
+      .id;
     // Deltas reference real transactions (FK); seed the ones the tests use.
     const txns = new TransactionRepository(db);
-    await txns.ingest({ hash: "H1", ledgerIndex: 1, txType: "Payment", txBlob: new Uint8Array([1]), metaBlob: new Uint8Array([2]), provenance: PROV, accounts: ["rA", "rB"] });
-    await txns.ingest({ hash: "H2", ledgerIndex: 2, txType: "Payment", txBlob: new Uint8Array([3]), metaBlob: new Uint8Array([4]), provenance: PROV, accounts: ["rA"] });
+    await txns.ingest({
+      hash: "H1",
+      ledgerIndex: 1,
+      txType: "Payment",
+      txBlob: new Uint8Array([1]),
+      metaBlob: new Uint8Array([2]),
+      provenance: PROV,
+      accounts: ["rA", "rB"],
+    });
+    await txns.ingest({
+      hash: "H2",
+      ledgerIndex: 2,
+      txType: "Payment",
+      txBlob: new Uint8Array([3]),
+      metaBlob: new Uint8Array([4]),
+      provenance: PROV,
+      accounts: ["rA"],
+    });
   });
 
   afterEach(async () => {

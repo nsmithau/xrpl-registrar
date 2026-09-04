@@ -14,10 +14,10 @@ Clio is the sole source of historical transaction data.
 
 A live `server_info` against a public full-history Clio cluster shows the two components' history ranges:
 
-| Component | `complete_ledgers` |
-|-----------|--------------------|
-| Clio | `32570-106232907` (full history, contiguous from the earliest surviving ledger) |
-| The `xrpld` behind it | `105423178-106232922` (~800k ledgers, a few weeks) |
+| Component             | `complete_ledgers`                                                              |
+| --------------------- | ------------------------------------------------------------------------------- |
+| Clio                  | `32570-106232907` (full history, contiguous from the earliest surviving ledger) |
+| The `xrpld` behind it | `105423178-106232922` (~800k ledgers, a few weeks)                              |
 
 Full history lives in Clio's database. The P2P node feeding it retains only a short window. No amount of effort running `xrpld` produces what the issuer needs.
 

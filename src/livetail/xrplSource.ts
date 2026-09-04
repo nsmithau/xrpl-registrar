@@ -89,7 +89,8 @@ export class XrplTailSource implements TailSource {
     this.#reader = options.reader;
     this.#accounts = options.accounts;
     this.#scope = new Set(options.accounts);
-    this.#scopeOf = options.scopeOf ?? ((txJson, meta) => affectedAccounts(txJson, meta, this.#scope));
+    this.#scopeOf =
+      options.scopeOf ?? ((txJson, meta) => affectedAccounts(txJson, meta, this.#scope));
     this.#logger = options.logger ?? nullLogger;
   }
 
