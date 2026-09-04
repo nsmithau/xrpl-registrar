@@ -54,13 +54,14 @@ export async function backfillGap(
   db: Database,
   issuers: readonly string[],
   range: LedgerRange,
-  tracked: readonly TrackedIssuance[],
+  /** Read live, per page: an issuance deleted mid-heal drops out of scope at the
+   * next page instead of the heal re-inserting its purged holders. */
+  tracked: () => readonly TrackedIssuance[],
   options: BackfillGapOptions = {},
 ): Promise<number> {
   const logger = options.logger ?? nullLogger;
   const deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
   const onEntry = options.onEntry ?? (() => {});
-  const mapEntry = options.mapEntry ?? issuerSweepEntryMapper(tracked);
   const concurrency = options.concurrency ?? HEAL_CONCURRENCY;
 
   const startedMs = Date.now();
@@ -81,6 +82,7 @@ export async function backfillGap(
       limit: options.pageLimit,
     })) {
       const batch: MappedEntry[] = [];
+      const mapEntry = options.mapEntry ?? issuerSweepEntryMapper(tracked());
       for (const entry of page.entries) {
         const mapped = mapEntry(entry, issuer, page.provenance);
         if (mapped) batch.push(mapped);

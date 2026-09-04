@@ -72,7 +72,20 @@ export async function ingestIssuance(
   issuance: IssuanceRecord,
   logger: Logger = nullLogger,
   activity: ActivityTracker = noopActivityTracker,
+  /** Cooperative stop for the sweep (see `IssuerBackfillOptions.shouldStop`);
+   * also skips the pipeline entirely when already true, so a re-scan does not
+   * enqueue work for an issuance being deleted. */
+  shouldStop: () => boolean = () => false,
 ): Promise<IngestSummary> {
+  if (shouldStop()) {
+    return {
+      strategy: "issuer_sweep",
+      discovered: 0,
+      jobsProcessed: 0,
+      deltaRows: 0,
+      highWater: null,
+    };
+  }
   const label =
     issuance.kind === "mpt"
       ? issuance.mptIssuanceId
@@ -107,6 +120,7 @@ export async function ingestIssuance(
       runIssuerBackfill(client, db, trackedIssuance(issuance), job, {
         logger,
         deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
+        shouldStop,
       }),
     );
     highWater = result.highWater;

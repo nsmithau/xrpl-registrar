@@ -75,6 +75,11 @@ export interface IssuerBackfillOptions {
   /** Override the entry → row mapping (defaults to decoding binary blobs and
    * scoping to tracked-issuance holders). Injectable for tests. */
   readonly mapEntry?: (entry: BinaryTxEntry, issuer: string, provenance: Provenance) => MappedEntry | null;
+  /** Cooperative stop, polled at the top of each page's DB transaction (so a
+   * true answer is seen before any further row is written). When it returns
+   * true the sweep ends without completing the job or claiming coverage —
+   * used to abandon a sweep for an issuance being deleted. */
+  readonly shouldStop?: () => boolean;
 }
 
 export interface IssuerBackfillResult {
@@ -95,9 +100,7 @@ export interface IssuerBackfillResult {
  * Each page commits its rows, deltas, resume marker, and the holders discovered
  * on it in one DB transaction — a crash resumes from the last persisted page
  * with no gaps or duplicates (ingest is idempotent). Coverage is claimed on the
- * final page: the sweep saw every issuer transaction in `[fromLedger, highWater]`,
- * so every holder is covered across that whole range (forward pagination means
- * the final page carries the true high-water even after a resume).
+ * final page for every holder and the issuer (see `claimCoverage` for the bounds).
  */
 export async function runIssuerBackfill(
   client: ClioReader,
@@ -109,6 +112,7 @@ export async function runIssuerBackfill(
   const logger = options.logger ?? nullLogger;
   const deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
   const mapEntry = options.mapEntry ?? issuerSweepEntryMapper([issuance]);
+  const shouldStop = options.shouldStop ?? (() => false);
   const jobs = new BackfillJobRepository(db);
   const issuer = job.address;
   const fromLedger = job.fromLedger ?? 0;
@@ -140,7 +144,14 @@ export async function runIssuerBackfill(
       }
       const isFinal = page.marker === undefined;
 
+      let stopped = false;
       await db.transaction(async (t) => {
+        // Checked while holding the (single) writer: a delete sets its flag before
+        // it purges, so a false here means the purge cannot land until we commit.
+        if (shouldStop()) {
+          stopped = true;
+          return;
+        }
         if (batch.length > 0) {
           await insertTransactionRowsMany(t, batch.map((b) => b.row));
           for (const b of batch) {
@@ -157,6 +168,11 @@ export async function runIssuerBackfill(
           await completeJob(t, job.id);
         }
       });
+      if (stopped) {
+        // Left `running`; a later resume reclaims it if the issuance survives.
+        logger.info("issuer backfill stopped", { issuer, ingested });
+        break;
+      }
 
       if (ingested - lastProgress >= PROGRESS_EVERY) {
         lastProgress = ingested;
@@ -196,12 +212,13 @@ async function recordHolder(t: Queryable, issuanceId: number, address: string, l
  * completed sweep saw all issuer activity across the range.
  *
  * The upper bound is `to` (the sweep's high-water mark). The lower bound is the
- * *honest* floor — the lowest ledger we actually hold in-scope data for — not
- * the configured `from`. A sweep that resumed from a stale checkpoint (or a DB
- * that lost its early rows to churn) would otherwise over-claim completeness
- * from `from` while missing everything below its true starting point; anchoring
- * the floor to real data makes coverage report where the archive actually
- * begins, so a gap surfaces as low coverage rather than a silent wrong balance. */
+ * earliest in-scope transaction the sweep actually stored — `recordHolder`
+ * persists each holder's first kept ledger page by page, including zero-delta
+ * opt-ins — rather than the configured `from`, so a DB that lost its early rows
+ * reports coverage from where the archive really begins instead of silently
+ * over-claiming (and every stored row stays inside the claimed range). Clamped
+ * to `to` so a resume that re-saw no in-scope rows cannot invert the range. The
+ * `reason` keeps the configured range for provenance. */
 async function claimCoverage(
   t: Queryable,
   issuanceId: number,
@@ -210,21 +227,20 @@ async function claimCoverage(
   to: number,
 ): Promise<void> {
   const floorRes = await t.query<{ lo: number | string | null }>(
-    `SELECT min(tx.ledger_index) AS lo FROM balance_deltas bd
-     JOIN transactions tx ON tx.hash = bd.hash WHERE bd.issuance_id = $1`,
+    "SELECT min(first_acquisition_ledger) AS lo FROM account_issuance WHERE issuance_id = $1",
     [issuanceId],
   );
   const lo = floorRes.rows[0]?.lo;
-  from = lo === null || lo === undefined ? from : Math.max(from, Number(lo));
+  const floor = Math.min(to, lo === null || lo === undefined ? from : Math.max(from, Number(lo)));
   const reason = `issuer sweep ${issuer} [${from},${to}]`;
   await t.query(
     `INSERT INTO coverage (address, from_ledger, to_ledger, reason)
      SELECT address, $2, $3, $4 FROM account_issuance WHERE issuance_id = $1`,
-    [issuanceId, from, to, reason],
+    [issuanceId, floor, to, reason],
   );
   await t.query(
     `INSERT INTO coverage (address, from_ledger, to_ledger, reason) VALUES ($1, $2, $3, $4)`,
-    [issuer, from, to, reason],
+    [issuer, floor, to, reason],
   );
 }
 

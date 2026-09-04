@@ -27,7 +27,7 @@ describe("backfillGap", () => {
       return { transactions: [] }; // empty: exercise the request shape, not decoding
     });
 
-    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 900 }, []);
+    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 900 }, () => []);
 
     expect(n).toBe(0);
     // A single account_tx call bracketed by the gap range — independent of how
@@ -49,7 +49,7 @@ describe("backfillGap", () => {
     });
 
     // Three tracked MPTs sharing one issuer; a second issuer for a fourth.
-    await backfillGap(client, db, ["rIssuerA", "rIssuerB"], { fromLedger: 1, toLedger: 10 }, []);
+    await backfillGap(client, db, ["rIssuerA", "rIssuerB"], { fromLedger: 1, toLedger: 10 }, () => []);
 
     expect(accounts.sort()).toEqual(["rIssuerA", "rIssuerB"]); // one call each, not per-MPT
   });
@@ -62,7 +62,7 @@ describe("backfillGap", () => {
       return calls === 1 ? { transactions: [], marker: { ledger: 5, seq: 0 } } : { transactions: [] };
     });
 
-    await backfillGap(client, db, ["rIssuer"], { fromLedger: 1, toLedger: 100 }, []);
+    await backfillGap(client, db, ["rIssuer"], { fromLedger: 1, toLedger: 100 }, () => []);
 
     expect(calls).toBe(2);
   });
@@ -76,7 +76,7 @@ describe("backfillGap", () => {
       error: () => {},
     };
 
-    await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 800 }, [], { logger });
+    await backfillGap(client, db, ["rIssuer"], { fromLedger: 500, toLedger: 800 }, () => [], { logger });
 
     const messages = logs.map((l) => l.message);
     expect(messages).toContain("gap heal started");
@@ -120,7 +120,7 @@ describe("backfillGap", () => {
         : null;
 
     const seen: string[] = [];
-    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 700, toLedger: 701 }, [], {
+    const n = await backfillGap(client, db, ["rIssuer"], { fromLedger: 700, toLedger: 701 }, () => [], {
       mapEntry,
       onEntry: (meta) => seen.push((meta as { tag: string }).tag),
     });

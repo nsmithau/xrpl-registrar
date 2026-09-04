@@ -156,6 +156,10 @@ let tracked: TrackedIssuance[] = [];
 // still present, so the tail stops deriving their deltas the instant a delete
 // starts and cannot re-add them (via a concurrent refresh) before the purge.
 const deleting = new Set<number>();
+// Cooperative stop for every backfill writer (issuer sweep, per-holder worker,
+// re-scan): polled inside each page's DB transaction, so a delete that has set
+// its flag is seen before another row is written for that issuance.
+const stopWhenDeleting = (issuanceId: number) => (): boolean => deleting.has(issuanceId);
 const refreshTracked = async (): Promise<void> => {
   tracked = (await new IssuanceRepository(db).list())
     .filter((i) => !deleting.has(i.id))
@@ -232,7 +236,13 @@ async function trackNewHolder(issuanceId: number, holder: string): Promise<void>
     { address: holder, discoveredVia: "stream", firstAcquisitionLedger: null },
   ]);
   inScope.add(`${issuanceId}|${holder}`);
-  const worker = new BackfillWorker({ client: pagingClient, db, deriveDeltas, keep: inScopeEntry });
+  const worker = new BackfillWorker({
+    client: pagingClient,
+    db,
+    deriveDeltas,
+    keep: inScopeEntry,
+    shouldStop: (id) => deleting.has(id),
+  });
   await worker.enqueue(issuanceId, [holder], 0);
   // Streaming discovery: the tail spotted a holder not yet in scope and is
   // bringing it in. Tracked as "discovery" (the bulk issuer sweep is "backfill"),
@@ -292,7 +302,7 @@ const tail = new LiveTail({
     // against the issuer), instead of a request per gap ledger or per holder.
     const issuers = issuerAddresses(tracked);
     await activity.track("backfill", `healing ${range.fromLedger}–${range.toLedger}`, () =>
-      backfillGap(pagingClient, db, issuers, range, tracked, {
+      backfillGap(pagingClient, db, issuers, range, () => tracked, {
         logger: log,
         deriveDeltas,
         // Discover holders that first appeared during the gap, same as the tail.
@@ -313,7 +323,7 @@ console.log(
 async function resumeBackfills(): Promise<void> {
   const jobs = new BackfillJobRepository(db);
   for (const issuance of await new IssuanceRepository(db).list()) {
-    if (!issuance.enabled) continue;
+    if (!issuance.enabled || deleting.has(issuance.id)) continue;
     const label =
       issuance.kind === "mpt"
         ? issuance.mptIssuanceId
@@ -331,6 +341,7 @@ async function resumeBackfills(): Promise<void> {
         runIssuerBackfill(pagingClient, db, trackedIssuance(issuance), fresh, {
           logger: log,
           deriveDeltas: deltaDeriver([trackedIssuance(issuance)]),
+          shouldStop: stopWhenDeleting(issuance.id),
         }),
       );
     }
@@ -351,6 +362,7 @@ async function resumeBackfills(): Promise<void> {
         logger: log,
         deriveDeltas,
         keep: inScopeEntry,
+        shouldStop: (id) => deleting.has(id),
       });
       await activity.track("backfill", `resuming holders ${label ?? issuance.id}`, () =>
         worker.runIssuance(issuance.id),
@@ -370,8 +382,24 @@ let rediscoverTimer: NodeJS.Timeout | undefined;
 async function rediscover(): Promise<void> {
   const issuances = await new IssuanceRepository(db).list();
   for (const issuance of issuances) {
-    if (!issuance.enabled) continue;
-    await ingestIssuance(pagingClient, db, issuance, log, activity);
+    if (!issuance.enabled || deleting.has(issuance.id)) continue;
+    try {
+      await ingestIssuance(
+        pagingClient,
+        db,
+        issuance,
+        log,
+        activity,
+        stopWhenDeleting(issuance.id),
+      );
+    } catch (err) {
+      // Isolate one issuance's failure so the rest are still re-scanned and the
+      // tracked set / subscription below are still refreshed.
+      log.error("re-discovery failed for issuance", {
+        issuanceId: issuance.id,
+        error: String(err),
+      });
+    }
   }
   await refreshTracked();
   await seedInScope();
@@ -412,7 +440,7 @@ async function healPostBackfill(issuance: IssuanceRecord, highWater: number | nu
   if (current <= highWater) return; // the tail did not advance past the sweep
   const range = { fromLedger: highWater, toLedger: current };
   await activity.track("backfill", `post-backfill heal ${issuance.id}`, () =>
-    backfillGap(pagingClient, db, [issuer], range, tracked, {
+    backfillGap(pagingClient, db, [issuer], range, () => tracked, {
       logger: log,
       deriveDeltas,
       onEntry: (meta) => onStreamTransaction(meta),
@@ -439,8 +467,18 @@ if (config.admin.token) {
     ...(config.admin.explorerBaseUrl ? { explorerBaseUrl: config.admin.explorerBaseUrl } : {}),
     logger: log,
     onRegistered: (issuance) => {
-      const done = ingestIssuance(pagingClient, db, issuance, log, activity)
+      const done = ingestIssuance(
+        pagingClient,
+        db,
+        issuance,
+        log,
+        activity,
+        stopWhenDeleting(issuance.id),
+      )
         .then(async (summary) => {
+          // A delete began while the sweep ran: skip the tracking/heal pass (its
+          // own post-delete refresh runs instead) so the DELETE isn't held on it.
+          if (deleting.has(issuance.id)) return;
           // Track the new issuance (for tail delta derivation + streaming
           // discovery), and bring its accounts and issuer into the subscription.
           await refreshTracked();
@@ -459,12 +497,20 @@ if (config.admin.token) {
     },
     onBeforeDelete: async (issuanceId) => {
       // Quiesce before the purge: stop the tail deriving this issuance now (and
-      // keep a concurrent refresh from re-adding it), then wait for any in-flight
-      // backfill + heal to finish, so nothing writes rows for an issuance being
-      // deleted underneath it (which would FK-fail once its row is gone).
+      // keep a concurrent refresh from re-adding it); the same flag makes every
+      // backfill writer stop at its next page. Then drain the registration
+      // ingest, which now ends within one page rather than running the sweep out.
       deleting.add(issuanceId);
       tracked = tracked.filter((i) => i.id !== issuanceId);
       await inflightIngest.get(issuanceId); // already .catch-guarded; never throws
+    },
+    onDeleteAborted: (issuanceId) => {
+      // No purge happened (unknown id or failure): lift the guard so a still-live
+      // issuance is tracked again rather than silently frozen until restart.
+      deleting.delete(issuanceId);
+      void refreshTracked().catch((err: unknown) =>
+        log.error("post-abort refresh failed", { error: String(err) }),
+      );
     },
     onDeleted: (issuanceId) => {
       // Drop the removed issuance from the tail's tracked set and subscription,
@@ -478,7 +524,7 @@ if (config.admin.token) {
           log.info("issuance deleted", { issuanceId });
         } finally {
           // Row is gone from the DB now, so the guard is no longer needed to keep
-          // it out of `tracked`; release it so the id can be reused.
+          // it out of `tracked`; release it.
           deleting.delete(issuanceId);
         }
       })().catch((err: unknown) => log.error("post-delete refresh failed", { error: String(err) }));

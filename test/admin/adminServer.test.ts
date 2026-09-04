@@ -245,6 +245,41 @@ describe("AdminServer", () => {
     }
   });
 
+  it("fires onDeleteAborted (not onDeleted) when the id is unknown or the purge fails", async () => {
+    const db2 = await openArchiveDatabase();
+    const api2 = new AdminApi(db2);
+    const aborted: number[] = [];
+    const deleted: number[] = [];
+    const srv = new AdminServer({
+      api: api2,
+      token: TOKEN,
+      port: 0,
+      onDeleted: (id) => deleted.push(id),
+      onDeleteAborted: (id) => aborted.push(id),
+    });
+    const p = await srv.start();
+    const b2 = `http://127.0.0.1:${p}`;
+    try {
+      // Unknown id → 404: the quiesce must be undone.
+      expect(
+        (await fetch(`${b2}/admin/issuances/42`, { method: "DELETE", headers: auth() })).status,
+      ).toBe(404);
+      expect(aborted).toEqual([42]);
+      // Purge throws → error response: also undone.
+      api2.deleteIssuance = async () => {
+        throw new Error("boom");
+      };
+      expect(
+        (await fetch(`${b2}/admin/issuances/43`, { method: "DELETE", headers: auth() })).status,
+      ).toBe(400);
+      expect(aborted).toEqual([42, 43]);
+      expect(deleted).toEqual([]);
+    } finally {
+      await srv.stop();
+      await db2.close();
+    }
+  });
+
   it("rejects other mutations with 409 while a delete + vacuum is in progress", async () => {
     // A dedicated server whose delete hangs on a gate, so the maintenance lock
     // stays held while we fire a concurrent registration.

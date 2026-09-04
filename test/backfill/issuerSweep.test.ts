@@ -91,7 +91,7 @@ describe("runIssuerBackfill", () => {
     expect(done!.status).toBe("completed");
   });
 
-  it("claims [from, highWater] coverage for every holder and the issuer", async () => {
+  it("claims coverage from the earliest stored in-scope tx to highWater for every holder and the issuer", async () => {
     const { tracked, job } = await setup(db, 50);
     const client = fakeReader((req: ClioRequest) =>
       req.command === "account_tx"
@@ -104,18 +104,19 @@ describe("runIssuerBackfill", () => {
     const cov = await db.query<{ address: string; lo: number | string; hi: number | string }>(
       "SELECT address, min(from_ledger) AS lo, max(to_ledger) AS hi FROM coverage GROUP BY address ORDER BY address",
     );
-    // Holder rA and the issuer are both covered over the whole swept range.
+    // Holder rA and the issuer are both covered from the first stored tx (200)
+    // — the archive's real floor, not the configured 50 — to the high-water.
     expect(cov.rows).toEqual([
-      { address: "rA", lo: 50, hi: 200 },
-      { address: ISSUER, lo: 50, hi: 200 },
+      { address: "rA", lo: 200, hi: 200 },
+      { address: ISSUER, lo: 200, hi: 200 },
     ]);
   });
 
-  it("anchors the coverage floor to the earliest ingested data, not the configured from-ledger", async () => {
-    // The job is configured to sweep from ledger 50, but the only in-scope
-    // balance data the sweep actually produces starts at ledger 300 (as if a
-    // resume/churn left everything below 300 missing). Coverage must report the
-    // honest floor (300), not over-claim completeness from 50.
+  it("anchors the coverage floor to the earliest stored in-scope tx, even one with no balance delta", async () => {
+    // The sweep stores every in-scope tx it keeps, including zero-delta opt-ins
+    // (ledger 200 here); only ledger 300 leaves a balance delta. The floor must
+    // be 200 — every stored row stays inside the claimed range — not the first
+    // delta (300) and not the configured from-ledger (50).
     const { tracked, job } = await setup(db, 50);
     const client = fakeReader((req: ClioRequest) =>
       req.command === "account_tx"
@@ -127,9 +128,6 @@ describe("runIssuerBackfill", () => {
           }
         : {},
     );
-
-    // Only the ledger-300 transaction leaves a balance delta; ledger 200 is a
-    // scanned-but-empty tx, so the archive's real data floor is 300.
     const deriveDeltas = async (t: Queryable, hash: string): Promise<void> => {
       if (hash !== "H2") return;
       await t.query(
@@ -144,10 +142,41 @@ describe("runIssuerBackfill", () => {
       "SELECT address, min(from_ledger) AS lo, max(to_ledger) AS hi FROM coverage GROUP BY address ORDER BY address",
     );
     expect(cov.rows).toEqual([
-      { address: "rA", lo: 300, hi: 300 },
-      { address: "rB", lo: 300, hi: 300 },
-      { address: ISSUER, lo: 300, hi: 300 },
+      { address: "rA", lo: 200, hi: 300 },
+      { address: "rB", lo: 200, hi: 300 },
+      { address: ISSUER, lo: 200, hi: 300 },
     ]);
+  });
+
+  it("stops at the next page when shouldStop turns true, without completing the job or claiming coverage", async () => {
+    const { tracked, job } = await setup(db);
+    let calls = 0;
+    let stop = false;
+    const client = fakeReader((req: ClioRequest) => {
+      if (req.command !== "account_tx") return {};
+      calls += 1;
+      return calls === 1
+        ? {
+            transactions: [{ tx_blob: "H1", meta_blob: "rA", ledger_index: 100 }],
+            marker: { ledger: 100, seq: 0 },
+          }
+        : { transactions: [{ tx_blob: "H2", meta_blob: "rB", ledger_index: 200 }] };
+    });
+
+    const result = await runIssuerBackfill(client, db, tracked, job, {
+      mapEntry,
+      shouldStop: () => {
+        const answer = stop;
+        stop = true; // page 1 proceeds; page 2 sees the stop
+        return answer;
+      },
+    });
+
+    expect(result.ingested).toBe(1); // page 2's row was never written
+    const after = await new BackfillJobRepository(db).getByAccount(tracked.id, ISSUER);
+    expect(after!.status).toBe("running");
+    const cov = await db.query<{ n: number | string }>("SELECT count(*)::int AS n FROM coverage");
+    expect(Number(cov.rows[0]!.n)).toBe(0);
   });
 
   it("pages the sweep to exhaustion and resumes from the checkpoint marker", async () => {

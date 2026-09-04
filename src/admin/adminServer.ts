@@ -24,6 +24,10 @@ export interface AdminServerOptions {
   /** Called after a successful deletion — refresh tracked issuances and the
    * live-tail subscription so the removed issuance is dropped. */
   readonly onDeleted?: (issuanceId: number) => void;
+  /** Called when a delete that already ran `onBeforeDelete` did not purge
+   * (unknown id, or the purge failed) — undo the quiesce so a still-live
+   * issuance is not left untracked. */
+  readonly onDeleteAborted?: (issuanceId: number) => void;
   /** Dashboard session lifetime in ms (login cookie). Default 12h. */
   readonly sessionTtlMs?: number;
   /** Add `Secure` to the session cookie — set true when terminating TLS in
@@ -67,6 +71,7 @@ export class AdminServer {
   readonly #onRegistered: ((issuance: IssuanceRecord) => void) | undefined;
   readonly #onBeforeDelete: ((issuanceId: number) => Promise<void> | void) | undefined;
   readonly #onDeleted: ((issuanceId: number) => void) | undefined;
+  readonly #onDeleteAborted: ((issuanceId: number) => void) | undefined;
   readonly #logger: Logger;
   /** Set while a delete + vacuum runs; blocks other mutating requests. */
   #maintenance = false;
@@ -87,6 +92,7 @@ export class AdminServer {
     this.#onRegistered = options.onRegistered;
     this.#onBeforeDelete = options.onBeforeDelete;
     this.#onDeleted = options.onDeleted;
+    this.#onDeleteAborted = options.onDeleteAborted;
     this.#sessionTtlMs = options.sessionTtlMs ?? 12 * 60 * 60 * 1000;
     this.#secureCookie = options.secureCookie ?? false;
     this.#explorerBaseUrl = options.explorerBaseUrl;
@@ -254,16 +260,19 @@ export class AdminServer {
       if (req.method === "DELETE" && id !== undefined) {
         // Hold the maintenance lock for the whole delete + vacuum.
         this.#maintenance = true;
+        let purged = false;
         try {
           // Quiesce first: stop the tail deriving this issuance and drain any
           // in-flight backfill so the purge doesn't race concurrent writers.
           await this.#onBeforeDelete?.(id);
           const summary = await this.#api.deleteIssuance(id);
           if (!summary) return send(res, 404, { error: "notFound" });
+          purged = true;
           this.#onDeleted?.(id);
           return send(res, 200, summary);
         } finally {
           this.#maintenance = false;
+          if (!purged) this.#onDeleteAborted?.(id);
         }
       }
       return send(res, 405, { error: "methodNotAllowed" });

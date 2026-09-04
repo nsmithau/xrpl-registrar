@@ -45,6 +45,11 @@ export interface BackfillWorkerOptions {
    * transaction as the insert (so backfilled history has deltas without a
    * separate full re-scan). Default: none. */
   readonly deriveDeltas?: DeriveDeltas;
+  /** Cooperative stop per issuance, polled before each job claim and at the top
+   * of each page's DB transaction (so a true answer is seen before any further
+   * row is written). Used to abandon jobs for an issuance being deleted; the
+   * in-flight job is left `running` for a later reclaim. Default: never. */
+  readonly shouldStop?: (issuanceId: number) => boolean;
 }
 
 /**
@@ -68,6 +73,7 @@ export class BackfillWorker {
   readonly #mapEntry: NonNullable<BackfillWorkerOptions["mapEntry"]>;
   readonly #keep: (entry: BinaryTxEntry) => boolean;
   readonly #deriveDeltas: DeriveDeltas;
+  readonly #shouldStop: (issuanceId: number) => boolean;
   readonly jobs: BackfillJobRepository;
   /** Session-wide running total of transactions ingested, for the throttled
    * progress counter (shared across concurrently-backfilled accounts). */
@@ -83,6 +89,7 @@ export class BackfillWorker {
     this.#mapEntry = options.mapEntry ?? mapBinaryEntry;
     this.#keep = options.keep ?? (() => true);
     this.#deriveDeltas = options.deriveDeltas ?? (() => Promise.resolve());
+    this.#shouldStop = options.shouldStop ?? (() => false);
     this.jobs = new BackfillJobRepository(options.db);
   }
 
@@ -115,7 +122,15 @@ export class BackfillWorker {
         const mapped = page.entries
           .filter((entry) => this.#keep(entry))
           .map((entry) => this.#mapEntry(entry, job.address, page.provenance));
+        let stopped = false;
         await this.#db.transaction(async (t) => {
+          // Checked while holding the (single) writer: a delete sets its flag
+          // before it purges, so a false here means the purge cannot land until
+          // we commit.
+          if (this.#shouldStop(job.issuanceId)) {
+            stopped = true;
+            return;
+          }
           // Batch the page's rows (one multi-row statement per table), then derive
           // deltas per transaction (the rows exist, so the delta FK is satisfied).
           if (mapped.length > 0) {
@@ -139,6 +154,7 @@ export class BackfillWorker {
             );
           }
         });
+        if (stopped) break;
         // A single running counter across all accounts, throttled — not a line
         // per account or page.
         this.#ingestedTotal += mapped.length;
@@ -174,6 +190,7 @@ export class BackfillWorker {
     let failed = 0;
     const loop = async (): Promise<void> => {
       for (;;) {
+        if (this.#shouldStop(issuanceId)) break;
         const job = await this.jobs.claim(issuanceId);
         if (!job) break;
         try {
