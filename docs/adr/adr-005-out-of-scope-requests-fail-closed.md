@@ -8,10 +8,12 @@ Mirroring Clio creates a semantic gap. Clio returns real data for any account; w
 
 ## Decision
 
-Out-of-scope requests are governed by `forward_unknown_accounts`, defaulting to **false** in production.
+Out-of-scope requests are governed by a `forwardUnknownAccounts` switch, defaulting to **false**.
 
 - **Closed (default):** return a distinct `notInArchive` error carrying the archive scope in `details`.
-- **Open:** forward to a configured public node, set `forwarded: true`, and attach a warning stating the payload is not archive-sourced and carries no completeness or provenance guarantee.
+- **Open:** forward to a configured public node, set `forwarded: true`, and attach a warning (id `65002`) stating the payload is not archive-sourced and carries no completeness or provenance guarantee.
+
+**As implemented:** the switch is an `ArchiveApi` constructor option, not an environment variable — `serve` never sets it, so a production deployment cannot enable forwarding of out-of-scope reads at all; the open mode exists for tests and embedded use. Exposing it via configuration would be a deliberate follow-on, not an oversight to patch.
 
 ## Options Considered
 

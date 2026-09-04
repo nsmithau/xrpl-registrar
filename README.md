@@ -8,18 +8,15 @@ A filtered XRPL archive registrar: maintains a local, verifiable transaction arc
 
 Institutional token issuers on the XRP Ledger have recordkeeping obligations that require long-horizon transaction history for a small set of accounts — an issuer and its holders. Running a full-history `xrpld` node is impractical: full history lives in Clio's database, not in the P2P node, and backfilling it over the peer network takes months if it converges at all. Buying history from a provider adds a third-party dependency; querying a public endpoint during a reporting run puts a deadline at the mercy of a shared, rate-limited cluster.
 
-This service holds exactly the history an issuer is required to keep, under the issuer's own control, and nothing else.
-
-Stellar solved the same problem with Horizon's [Ingestion Filtering](https://developers.stellar.org/docs/data/apis/horizon/admin-guide/ingestion-filtering). Neither `xrpld` nor `clio` has an equivalent.
+This service holds exactly the history an issuer is required to keep, under the issuer's own control, and nothing else. Neither `xrpld` nor `clio` offers a filtered-ingest mode that does this.
 
 ## How it works
 
 Operators configure **issuances**, not account lists. For each issuance the service:
 
-1. **Discovers** the complete set of accounts that ever held the token — via an authorisation scan (auth-required MPTs), a trustline scan (IOUs), or graph traversal (the general fallback), auto-selected from the token's on-ledger flags.
-2. **Backfills** each account's history from Clio, bounded and resumable (checkpointed per page, so a crash resumes with no gaps or duplicates), retaining the raw `tx_blob`/`meta_blob` and provenance on every record.
-3. **Keeps current** with a live `subscribe` tail (to every holder **and** the issuer) that ingests new transactions, derives their balance deltas as they land, detects ledger-sequence gaps and self-heals them, and **discovers new holders from the stream** — a new holder's first activity routes through the subscribed issuer, so it is picked up live without a periodic full re-scan.
-4. **Derives** per-account balance deltas and **reconciles** them against the state reconstructed from metadata.
+1. **Discovers and backfills** in one pass: a single paginated, resumable `account_tx` sweep on the **issuer** — every in-scope transaction, including holder-to-holder transfers, appears there — discovers every account that ever held the token and backfills their history from Clio, checkpointed per page (a crash resumes with no gaps or duplicates), retaining the raw `tx_blob`/`meta_blob` and provenance on every record.
+2. **Keeps current** with a live `subscribe` tail (to every holder **and** the issuer) that ingests new transactions, derives their balance deltas as they land, detects ledger-sequence gaps and self-heals them, and **discovers new holders from the stream** — a new holder's first activity routes through the subscribed issuer, so it is picked up live without a periodic full re-scan.
+3. **Derives** per-account balance deltas and **reconciles** them against the state reconstructed from metadata.
 
 Reads are served through an API that mirrors Clio's request/response shapes — so existing `xrpl.js` code works by changing a URL — plus namespaced reporting extensions Clio has no equivalent for. All upstream traffic passes through one governed client with a global concurrency cap and honest backoff, so adding issuances never multiplies upstream load.
 
@@ -52,7 +49,7 @@ CLIO_ENDPOINT=wss://<testnet-clio> pnpm demo   # override issuance with MPT_ISSU
 
 ## Registering issuances (Admin API)
 
-The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the registrar derives and maintains the account set itself: on registration it sweeps the issuer's history — discovering every holder and backfilling their transactions in one pass — then captures ledger close times and derives balances, all in the background.
+The unit of configuration is the **issuance**, not an account list. An operator registers an issuance and the registrar derives and maintains the account set itself: on registration it sweeps the issuer's history — discovering every holder and backfilling their transactions in one pass, deriving balance deltas as each lands — all in the background. Ledger close times are resolved lazily when a time-based query first needs them.
 
 The Admin API runs on a **separate, authenticated port** (`ADMIN_PORT`, default 51235), enabled by setting `ADMIN_TOKEN`. API clients (curl, Postman, xrpl.js) authenticate with `Authorization: Bearer <token>` on every request. The browser dashboard instead signs in once via `POST /admin/login`, which exchanges the token for an httpOnly, `SameSite=Strict` session cookie — so the token is never kept in JS-readable storage. Never expose this port publicly — it surfaces account addresses and archive scope.
 
@@ -91,7 +88,7 @@ DELETE /admin/issuances/{id}      # delete an issuance, purge its exclusive data
 
 The account set is **append-only**: accounts that ever held the token are never pruned, so an exited holder's history is retained. Registration is Admin-API-only by design; the operator dashboard (served at the admin port root) is read-only.
 
-`DELETE /admin/issuances/{id}` is the deliberate exception to append-only ([ADR-018](docs/adr/adr-018-delete-issuance.md)): it removes an issuance (e.g. one registered by mistake, or a mega-issuer sweep to abandon) and purges the data that is **exclusively** its own — its deltas, jobs, and the accounts/transactions no other issuance references — then `VACUUM`s to reclaim disk. Data shared with another issuance is retained. While a delete + vacuum runs, other mutating admin calls get `409` (reads stay available). The response summarises what was removed.
+`DELETE /admin/issuances/{id}` is the deliberate exception to append-only ([ADR-018](docs/adr/adr-018-delete-issuance.md)): it removes an issuance (e.g. one registered by mistake, or a mega-issuer sweep to abandon) and purges the data that is **exclusively** its own — its deltas, jobs, and the accounts/transactions no other issuance references — then `VACUUM`s to reclaim disk. Data shared with another issuance is retained. Any backfill still running for that issuance is stopped at its next page before the purge, and while the delete + vacuum runs, other mutating admin calls get `409` (reads stay available). The response summarises what was removed.
 
 ## Querying the archive (read API)
 

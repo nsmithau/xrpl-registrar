@@ -34,7 +34,17 @@ O(history) sweep:
 3. **Coverage** advances to the tail's high-water (`max(ledgers.ledger_index)`)
    rather than freezing at the per-account backfill `to_ledger`.
 
-Periodic re-discovery is demoted to an opt-in **safety-net** backstop.
+Periodic re-discovery is demoted to a **safety-net** backstop (on by default at a
+long interval; `REDISCOVERY_INTERVAL_MS=0` disables it).
+
+**Coverage, as implemented:** the advancing window is the *issuance-level* one —
+`max(backfill start) … tail high-water` — used by the admin status and by
+`gateway_balances`. The *per-account* range served by `account_tx`,
+`account_info` and `archive_balance_at` still comes from the `coverage` table,
+whose rows are written once per completed sweep (ADR-013), so an account's
+`ledger_index_max` reflects its last backfill/heal snapshot rather than the tail
+high-water. Under-claiming is the safe direction; advancing the per-account rows
+with the tail is a follow-on, not a correctness gap.
 
 ## The point that settles it
 

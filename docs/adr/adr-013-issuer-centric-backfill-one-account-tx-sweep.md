@@ -32,11 +32,23 @@ round. Deltas derive per transaction at ingest, as before. The gap heal already
 works this way (ADR-012 consequences); backfill and heal now share one mapper
 (`issuerSweepEntryMapper`).
 
-**Coverage** is claimed once the sweep completes: it saw every issuer transaction
-in `[from, highWater]`, so every holder of the issuance — and the issuer — is
-covered across that whole range. Forward pagination means the final page carries
-the true high-water even after a resume; holders discovered on each page are
-recorded atomically with that page's checkpoint, so a resume never loses one.
+**Coverage** is claimed once the sweep completes, for every holder of the
+issuance and the issuer, up to the sweep's high-water. The lower bound is the
+earliest in-scope transaction the sweep actually **stored** — each holder's first
+kept ledger is recorded page by page, atomically with that page's checkpoint,
+and includes zero-delta opt-ins — rather than the configured `from`: a database
+that lost its early rows then reports coverage from where the archive really
+begins instead of over-claiming, and every stored row sits inside the claimed
+range. The floor is clamped to the high-water so a resume that re-saw no
+in-scope rows cannot invert the range; the coverage `reason` keeps the configured
+range for provenance.
+
+**Cooperative stop.** Every backfill writer — the issuer sweep, the per-holder
+worker, and the re-scan — takes a `shouldStop` predicate polled inside each
+page's DB transaction (i.e. while holding the single writer), so an issuance
+being deleted stops receiving rows at its next page with no window for a purge
+to land mid-page (ADR-018). A stopped sweep leaves its job `running` for a later
+reclaim and claims no coverage.
 
 ## Consequences
 

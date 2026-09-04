@@ -4,27 +4,27 @@ Architecture decisions taken during design, August 2026. Each records the option
 
 **Read this before revisiting a design choice.** Several of these look like obvious simplifications from inside the code. They were considered and rejected for reasons that are invisible at the call site. Disagreeing is legitimate — superseding an ADR explicitly is the way to do it.
 
-Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted.
+Deciders throughout: Neil Smith. Status of all: **Accepted** unless noted in the table — ADR-003 carries a mandatory review point (replace the public upstream before any real filing), ADR-007's default ingest path is superseded by ADR-013, and ADR-011 was amended on 2026-08-19 (Apache-2.0 → ISC).
 
 ---
 
-| ADR                                                                         | Decision                                                                              |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [ADR-001](adr-001-build-a-purpose-built-registrar-rather-than.md)           | Build a purpose-built registrar rather than forking Stellar Horizon                   |
-| [ADR-002](adr-002-source-all-history-from-clio-never-from.md)               | Source all history from Clio, never from `xrpld`                                      |
-| [ADR-003](adr-003-public-clio-cluster-for-alpha-beta.md)                    | Use a public Clio cluster for Alpha and Beta                                          |
-| [ADR-004](adr-004-mirror-the-clio-api-api-version-2.md)                     | Mirror the Clio API, `api_version 2` only                                             |
-| [ADR-005](adr-005-out-of-scope-requests-fail-closed.md)                     | Out-of-scope requests fail closed                                                     |
-| [ADR-006](adr-006-keep-warning-id-2001-add-a-separate.md)                   | Keep warning id 2001; add a separate id for filtered-archive status                   |
-| [ADR-007](adr-007-traversal-is-the-general-discovery-algorithm-issuer.md)   | Traversal is the general discovery algorithm; issuer-scoped queries are optimisations |
-| [ADR-008](adr-008-typescript-on-node-with-xrpl-v5.md)                       | TypeScript on Node with `xrpl` v5                                                     |
-| [ADR-009](adr-009-operator-ui-is-read-only-and-admin.md)                    | Operator UI is read-only and admin-port bound                                         |
-| [ADR-010](adr-010-store-the-filtered-archive-in-postgres-not.md)            | Store the filtered archive in Postgres, not Clio's Scylla/Cassandra backend           |
-| [ADR-011](adr-011-license-under-isc.md)                                     | License under ISC (the XRPL-core license)                                             |
-| [ADR-012](adr-012-tail-driven-incremental-maintenance-not-periodic-full.md) | Tail-driven incremental maintenance, not periodic full re-derivation/re-scan          |
-| [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md)          | Issuer-centric backfill — one `account_tx` sweep per issuer, not per holder           |
-| [ADR-014](adr-014-resolve-ledger-close-times-lazily-not-eagerly.md)         | Resolve ledger close times lazily, not eagerly at ingest                              |
-| [ADR-015](adr-015-governor-settings-from-load-probing.md)                   | Concurrency governor settings, tuned by load-probing public Clio                      |
-| [ADR-016](adr-016-http-transport-for-backfill-paging.md)                    | Page `account_tx` over HTTP JSON-RPC for backfill; WS only for the tail               |
-| [ADR-017](adr-017-gateway-balances-for-iou-issuers.md)                      | Serve `gateway_balances` for IOU issuers — scoped and fail-closed                     |
-| [ADR-018](adr-018-delete-issuance.md)                                       | Deletable issuances — a bounded exception to append-only                              |
+| ADR                                                                         | Decision                                                                          |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [ADR-001](adr-001-build-a-purpose-built-registrar-rather-than.md)           | Build a purpose-built registrar rather than adapting an existing filtered indexer |
+| [ADR-002](adr-002-source-all-history-from-clio-never-from.md)               | Source all history from Clio, never from `xrpld`                                  |
+| [ADR-003](adr-003-public-clio-cluster-for-alpha-beta.md)                    | Use a public Clio cluster for Alpha and Beta _(mandatory review point)_           |
+| [ADR-004](adr-004-mirror-the-clio-api-api-version-2.md)                     | Mirror the Clio API, `api_version 2` only                                         |
+| [ADR-005](adr-005-out-of-scope-requests-fail-closed.md)                     | Out-of-scope requests fail closed                                                 |
+| [ADR-006](adr-006-keep-warning-id-2001-add-a-separate.md)                   | Keep warning id 2001; add a separate id for filtered-archive status               |
+| [ADR-007](adr-007-traversal-is-the-general-discovery-algorithm-issuer.md)   | Traversal is the general discovery algorithm _(amended — superseded by ADR-013)_  |
+| [ADR-008](adr-008-typescript-on-node-with-xrpl-v5.md)                       | TypeScript on Node with `xrpl` v5                                                 |
+| [ADR-009](adr-009-operator-ui-is-read-only-and-admin.md)                    | Operator UI is read-only and admin-port bound                                     |
+| [ADR-010](adr-010-store-the-filtered-archive-in-postgres-not.md)            | Store the filtered archive in Postgres, not Clio's Scylla/Cassandra backend       |
+| [ADR-011](adr-011-license-under-isc.md)                                     | License under ISC (the XRPL-core license) _(amended 2026-08-19)_                  |
+| [ADR-012](adr-012-tail-driven-incremental-maintenance-not-periodic-full.md) | Tail-driven incremental maintenance, not periodic full re-derivation/re-scan      |
+| [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md)          | Issuer-centric backfill — one `account_tx` sweep per issuer, not per holder       |
+| [ADR-014](adr-014-resolve-ledger-close-times-lazily-not-eagerly.md)         | Resolve ledger close times lazily, not eagerly at ingest                          |
+| [ADR-015](adr-015-governor-settings-from-load-probing.md)                   | Concurrency governor settings, tuned by load-probing public Clio                  |
+| [ADR-016](adr-016-http-transport-for-backfill-paging.md)                    | Page `account_tx` over HTTP JSON-RPC for backfill; WS only for the tail           |
+| [ADR-017](adr-017-gateway-balances-for-iou-issuers.md)                      | Serve `gateway_balances` for IOU issuers — scoped and fail-closed                 |
+| [ADR-018](adr-018-delete-issuance.md)                                       | Deletable issuances — a bounded exception to append-only                          |

@@ -1,6 +1,17 @@
 # ADR-007: Traversal is the general discovery algorithm; issuer-scoped queries are optimisations
 
-**Date:** 2026-08-12
+**Date:** 2026-08-12. **Status:** Amended — the default ingest path is superseded by [ADR-013](adr-013-issuer-centric-backfill-one-account-tx-sweep.md).
+
+> **Amendment note.** ADR-013 established, with live evidence, that the issuer's
+> `account_tx` contains *every* in-scope transaction — including holder-to-holder
+> transfers on non-auth MPTs, where this ADR assumed no issuer chokepoint. Discovery
+> is therefore folded into the single issuer sweep (`holdersInMeta` per page); no
+> strategy is selected or run at registration. The strategies below (`discover()`,
+> authorisation / trustline / traversal) remain in `src/discovery/` and tested, but
+> are off the default path — retained for explicit use and as a cross-check
+> primitive. The "run both and diff" cross-check is not automatic; it is
+> [ROADMAP #2](../ROADMAP.md). The append-only whitelist and issuance-as-unit
+> consequences still stand.
 
 ## Context
 

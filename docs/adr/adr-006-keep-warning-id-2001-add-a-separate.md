@@ -8,7 +8,9 @@ Clio attaches a `warnings` array to responses, with id `2001` declaring "this is
 
 ## Decision
 
-Continue emitting id `2001` **unchanged**. Add a *separate* warning under a new id carrying the archive scope, tracked issuances and ledger range in structured `details`. Use a documented provisional high id and propose a registered id to XRPLF.
+Continue emitting id `2001` **unchanged**. Add a *separate* warning under a new id flagging that this is a filtered archive. Use a documented provisional high id and propose a registered id to XRPLF.
+
+**As implemented:** the filtered-archive warning is id `65001` and is a compact marker with **no** `details` — the full tracked scope is returned only where it is actionable, in the `notInArchive` error's `details` (ADR-005), rather than on every response. Sibling provisional ids in the same range: `65002` (response forwarded upstream, not archive-sourced), `65003` (requested range exceeds guaranteed coverage), `65004` (`gateway_balances` does not report the issuer's own holdings — ADR-017).
 
 ## Rationale
 

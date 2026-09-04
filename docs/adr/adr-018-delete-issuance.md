@@ -32,7 +32,7 @@ only rows **exclusive** to the issuance, in one transaction, then `VACUUM`s:
 2. Compute the **exclusive accounts** — those in scope for this issuance and no
    other (`account_issuance` `EXCEPT`), plus the issuer account when no other
    issuance uses it as issuer or holder. Delete those accounts and everything
-   referencing them (`account_transactions`, `coverage`, jobs).
+   referencing them (`account_transactions`, `balance_deltas`, `coverage`, jobs).
 3. Delete `transactions` left referenced by **no** remaining `account_transactions`
    or `balance_deltas` row. A transaction reachable from a shared issuer or
    another issuance's account is retained.
@@ -44,9 +44,21 @@ only rows **exclusive** to the issuance, in one transaction, then `VACUUM`s:
 **Concurrency.** The delete + vacuum takes an exclusive, potentially slow path,
 so while it runs the admin server rejects other **mutating** calls
 (`POST`/`PATCH`/`DELETE`) with `409 maintenanceInProgress`; reads stay
-available. In `serve`, an `onDeleted` hook refreshes the tracked-issuance set and
-the live-tail subscription so the tail stops deriving deltas for the now-deleted
-issuance (whose rows are gone).
+available.
+
+**Quiesce before purge.** A backfill may still be running for the issuance
+(its registration sweep, a startup resume, the periodic re-scan, a per-holder
+job, or a gap heal). Before the purge, the admin server awaits an
+`onBeforeDelete` hook; in `serve` it drops the issuance from the tracked set (so
+the tail stops deriving it and a concurrent refresh cannot re-add it) and flags
+it as deleting. Every backfill writer polls that flag inside each page's DB
+transaction (ADR-013) and stops at its next page, and gap heals read the tracked
+set live per page — so nothing writes rows for the issuance under the purge, and
+the DELETE is held for at most one page rather than the remainder of a sweep.
+After the purge, `onDeleted` refreshes the tracked set and the live-tail
+subscription. If the purge does not happen (unknown id, or a failure),
+`onDeleteAborted` lifts the flag so a still-live issuance is not left untracked
+until restart.
 
 The response summarises what was removed (`accountsRemoved`,
 `transactionsRemoved`, `deltasRemoved`, `compacted`).

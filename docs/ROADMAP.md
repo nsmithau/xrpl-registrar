@@ -120,15 +120,17 @@ Overlaps with item 2; could share machinery.
 
 ---
 
-## 6. Deployment / ops hardening (M)
+## 6. Ops hardening (M)
 
-**Why.** The service binds to localhost and the admin surface must never be publicly
-exposed, but there is no packaged deployment story.
+**Why.** A native Ubuntu deployment path now ships in [`deploy/`](../deploy/) — a
+compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an
+nginx + TLS example, and a runbook covering the exposure model, backups, upgrades and
+uninstall — and `HOST` makes the public bind address explicit. What is still missing
+is observability and a non-Ubuntu path.
 
-**What.** A metrics endpoint, a container image, a runbook (exposure model, backup of
-the PGlite file / Postgres, upstream replacement per
-[ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md)), and explicit host-binding
-configuration. Prerequisite for anyone running this against a real filing deadline.
+**What.** A metrics endpoint, a container image, and the upstream-replacement
+procedure per [ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md).
+Prerequisite for anyone running this against a real filing deadline.
 
 ---
 
@@ -139,5 +141,6 @@ configuration. Prerequisite for anyone running this against a real filing deadli
   [ADR-011](adr/adr-011-license-under-isc.md).
 - **A registered XRPLF warning id** for the filtered-archive warning (currently a
   provisional id) — [ADR-006](adr/adr-006-keep-warning-id-2001-add-a-separate.md).
-- **UI auth granularity** (inherit admin-port protection vs a distinct login) —
-  [ADR-009](adr/adr-009-operator-ui-is-read-only-and-admin.md).
+- **UI auth granularity** — the dashboard now signs in with the same admin token
+  (`POST /admin/login` → session cookie); a distinct view-only credential is still
+  open — [ADR-009](adr/adr-009-operator-ui-is-read-only-and-admin.md).

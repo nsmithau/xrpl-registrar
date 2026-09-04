@@ -10,7 +10,7 @@ Clio stores the full XRPL history in ScyllaDB (Cassandra-compatible). Since we s
 
 ## Decision
 
-Store the archive in **Postgres**. For development, test, and small single-issuer deployments, run it **in-process via [PGlite](https://pglite.dev/)** — a real Postgres (WASM) with the genuine SQL dialect, no container, no separate server to operate. A networked Postgres server (`pg` driver) remains available for larger deployments and must sit behind the same data-access interface, so the engine is swappable without touching call sites.
+Store the archive in **Postgres**. For development, test, and small single-issuer deployments, run it **in-process via [PGlite](https://pglite.dev/)** — a real Postgres (WASM) with the genuine SQL dialect, no container, no separate server to operate. A networked Postgres server (`pg` driver) is the intended path for larger deployments — not yet implemented ([ROADMAP #3](../ROADMAP.md)); PGlite is the only engine today — and must sit behind the same data-access interface, so the engine is swappable without touching call sites.
 
 ## The point that settles it
 

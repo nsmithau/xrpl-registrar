@@ -24,9 +24,9 @@ the issuer and sum the balances itself.
 - the echoed `ledger_index` / `ledger_hash`.
 
 We already have the primitives to compute the first two from the archive:
-[`reconcile/iou.ts`](../../src/reconcile/iou.ts) reconstructs per-holder IOU
-balances from the `RippleState` metadata, and `archive_balance_at` already
-resolves balances **as of a ledger**. `obligations` for a registered issuance is
+`balance_deltas` holds every holder's per-transaction IOU balance changes (derived
+from `RippleState` metadata at ingest), and `archive_balance_at` already sums them
+**as of a ledger**. `obligations` for a registered issuance is
 just the sum of every in-scope holder's balance — and because the archive's
 whole guarantee is a _complete_ holder set, that sum equals the true circulating
 total. So the arithmetic is easy; the decision is about **scope and honesty**,
@@ -69,9 +69,9 @@ forward it upstream.
    issuer_, not as a _holder_ of third-party tokens, so it cannot compute `assets`
    completely. We therefore **do not fabricate it**: the field is omitted (not
    returned as `{}`, which would read as "holds none"), and every response
-   carries the filtered-archive status warning (ADR-006) noting that this method
-   reports issuer obligations/balances from the archive and does **not** report
-   the issuer's own holdings. Honesty over drop-in fidelity where the two
+   carries a dedicated warning (a sibling of the ADR-006 filtered-archive
+   warning) noting that this method reports issuer obligations/balances from the
+   archive and does **not** report the issuer's own holdings. Honesty over drop-in fidelity where the two
    conflict.
 
 Method class is **archive read** (scope-checked), alongside `mpt_holders`. It is
@@ -81,9 +81,10 @@ IOU-only: an MPT issuer's aggregate is already `mpt_holders`.
 dispatched from the archive-scoped path in `handler.ts`. Per-holder balances are
 the exact `sum(balance_deltas.delta)` up to the ledger (the same primitive as
 `archive_balance_at`, cheaper than reconstructing `RippleState`); obligations are
-their per-currency sum, hot wallets removed. Coverage uses the admin API's
-conservative window (max backfill start … tail high-water); an out-of-range
-ledger returns a new `outOfCoverage` error. A zero net obligation is omitted
+their per-currency sum, hot wallets removed. Coverage is the same conservative
+window the admin API reports (max backfill start … tail high-water), computed in
+the handler with a stricter join that fails closed if any in-scope holder lacks a
+coverage row; an out-of-range ledger returns a new `outOfCoverage` error. A zero net obligation is omitted
 (Clio parity); `assets` is omitted and every response carries the
 `gatewayAssetsNotTracked` warning (id `65004`). `ledger_index` accepts a number
 or `"validated"`/`"current"`/`"latest"`; point-in-time by date stays with
@@ -100,8 +101,8 @@ methods); `ledger_index` is the point-in-time identifier.
 - Restores symmetry: `mpt_holders` for MPT issuers, `gateway_balances` for IOU
   issuers. A client can point `xrpl.js` at the archive and call the method it
   already uses against Clio.
-- Reuses `reconcile/iou.ts` reconstruction and the `archive_balance_at` as-of
-  machinery; no new ingest or storage surface.
+- Reuses the `balance_deltas` as-of machinery behind `archive_balance_at`; no new
+  ingest or storage surface.
 - Correctness rides on complete discovery — the same guarantee every other
   archive read depends on. If discovery is complete, `obligations` is exact; the
   coverage claim is what makes that trustworthy, which is why an out-of-coverage
@@ -112,10 +113,11 @@ methods); `ledger_index` is the point-in-time identifier.
 - A multi-currency issuer gets all its **registered** currencies in one call, and
   only those — the response is complete _with respect to the archive's scope_,
   and says so.
-- Read cost today is a per-call reconstruction over history (like `mpt_holders`);
-  the materialised current-holders / `object_state` projection
-  ([ROADMAP #1](../ROADMAP.md)) would make the latest-ledger case an indexed
-  `SELECT` and is the natural optimisation once this ships.
+- Read cost today is one indexed aggregate over `balance_deltas` per in-scope
+  holder (cheaper than `mpt_holders`' metadata reconstruction, but still
+  O(holders × their deltas)); the materialised current-holders / `object_state`
+  projection ([ROADMAP #1](../ROADMAP.md)) would make the latest-ledger case a
+  single indexed `SELECT`.
 
 ## Options considered
 

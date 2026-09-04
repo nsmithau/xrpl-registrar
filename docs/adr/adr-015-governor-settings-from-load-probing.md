@@ -4,8 +4,8 @@
 
 The global concurrency governor caps in-flight upstream requests and backs off on
 load signals, but its defaults were set conservatively without measurement. A
-standalone probe (`examples/probe-ratelimit.ts`, plan in
-`docs/rate-limit-probe-plan.md`) load-tested the public **testnet** and
+standalone probe (`examples/probe-ratelimit.ts`; plan in the internal
+`docs/perf/rate-limit-probe-plan.md`, not published) load-tested the public **testnet** and
 **mainnet** full-history Clio clusters over both WebSocket and HTTP JSON-RPC,
 bucketing every failure by the same `classifyError` signals the governor reacts
 to. This ADR records what it found and the settings that follow.

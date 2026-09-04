@@ -4,7 +4,7 @@
 
 ## Context
 
-Backfill and gap-heal page an issuer's `account_tx` (binary, `limit` 200) — the
+Backfill and gap-heal page an issuer's `account_tx` (binary, at Clio's default page size) — the
 heaviest and most voluminous upstream traffic the registrar generates. The Clio
 client is a single xrpl.js **WebSocket** `Client`; every request multiplexes over
 that one socket.
@@ -45,8 +45,9 @@ governor (no probed endpoint sends it — a future refinement).
 - Backfill/heal wall-clock drops substantially at scale (the dominant cost is
   `account_tx` paging).
 - Two upstream transports to operate and observe; **both must honour the same
-  load signals** — add HTTP `503`/`429` (and any `Retry-After`) to
-  `classifyError`, which is WS-only today.
+  load signals** — `classifyError` maps HTTP `429`/`5xx` to retryable load
+  signals alongside the WS ones; honouring `Retry-After` remains the open
+  refinement noted above.
 - Per-transport concurrency becomes worthwhile: HTTP parallelises, so its cap can
   be higher than WS's, whereas the WS cap stays low (ADR-015). The governor may
   need a per-transport (or per-path) limit rather than one global number.
@@ -56,6 +57,6 @@ governor (no probed endpoint sends it — a future refinement).
 
 | Option                                           | Verdict                                                                                                                            |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Single WS for everything _(current)_             | Rejected for backfill: heavy `account_tx` serialises on one socket — throughput doesn't scale and pages time out under contention. |
+| Single WS for everything _(previous)_            | Rejected for backfill: heavy `account_tx` serialises on one socket — throughput doesn't scale and pages time out under contention. |
 | Pool of WS connections                           | Possible, but heavier to manage (N sockets, reconnect/subscribe semantics) than stateless request/response.                        |
 | **HTTP for paging + WS for the tail** _(chosen)_ | Matches each workload to its transport: stateless bulk paging over pooled HTTP, persistent stream over WS.                         |
