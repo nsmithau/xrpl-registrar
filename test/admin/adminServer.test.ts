@@ -208,6 +208,8 @@ describe("AdminServer", () => {
     const db2 = await openArchiveDatabase();
     const api2 = new AdminApi(db2);
     const order: string[] = [];
+    let entered: () => void = () => {};
+    const enteredDrain = new Promise<void>((r) => (entered = r));
     let releaseDrain: () => void = () => {};
     const drained = new Promise<void>((r) => (releaseDrain = r));
     api2.deleteIssuance = async (id: number) => {
@@ -226,6 +228,7 @@ describe("AdminServer", () => {
       port: 0,
       onBeforeDelete: async () => {
         order.push("beforeDelete");
+        entered(); // deterministic signal: the route has reached the hook
         await drained; // simulates waiting for an in-flight backfill to finish
         order.push("drained");
       },
@@ -234,7 +237,7 @@ describe("AdminServer", () => {
     const b2 = `http://127.0.0.1:${p}`;
     try {
       const del = fetch(`${b2}/admin/issuances/1`, { method: "DELETE", headers: auth() });
-      await new Promise((r) => setTimeout(r, 30));
+      await enteredDrain;
       expect(order).toEqual(["beforeDelete"]); // purge has not run — still draining
       releaseDrain();
       expect((await del).status).toBe(200);
@@ -285,9 +288,12 @@ describe("AdminServer", () => {
     // stays held while we fire a concurrent registration.
     const db2 = await openArchiveDatabase();
     const api2 = new AdminApi(db2);
+    let locked: () => void = () => {};
+    const lockHeld = new Promise<void>((r) => (locked = r));
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
     api2.deleteIssuance = async (id: number) => {
+      locked(); // deterministic signal: the route holds the maintenance lock
       await gate;
       return {
         issuanceId: id,
@@ -302,7 +308,7 @@ describe("AdminServer", () => {
     const b2 = `http://127.0.0.1:${p}`;
     try {
       const del = fetch(`${b2}/admin/issuances/1`, { method: "DELETE", headers: auth() });
-      await new Promise((r) => setTimeout(r, 30)); // let the delete acquire the lock
+      await lockHeld;
       const reg = await fetch(`${b2}/admin/issuances`, {
         method: "POST",
         headers: auth({ "content-type": "application/json" }),
