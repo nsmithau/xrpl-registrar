@@ -18,8 +18,8 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
       xrpl:
-        specifier: 5.0.0
-        version: 5.0.0
+        specifier: 5.1.0
+        version: 5.1.0
     devDependencies:
       '@eslint/js':
         specifier: ^9.17.0
@@ -684,6 +684,10 @@ packages:
     resolution: {integrity: sha512-ncZUdMXr6VlSXtdoiDi0jTH+gBrgGxwVeEidhoegII3PmyErbQsyj6e+j7acmR4LW/lvBkPkzb9QzRfJH0n3rA==}
     engines: {node: '>=18.0.0'}
 
+  '@xrplf/mpt-crypto@0.1.1':
+    resolution: {integrity: sha512-Wv9wbk60DRGWvI+B9DITwfWygCWDfEjv8yWxiLJyDf/G8UPkfhVlUKIflF9nMaBFMygPRkXrpO1jNqTj6/vJow==}
+    engines: {node: '>= 18'}
+
   '@xrplf/secret-numbers@3.0.0':
     resolution: {integrity: sha512-qpGhAZXv5noMDjCtfzq5NK0y5rrdwTVjKhhPcAYSE+a/gogBOgqdpCKyieprVVPCnmVmJnGeRoZKBAqpCGegsA==}
 
@@ -1052,8 +1056,8 @@ packages:
     resolution: {integrity: sha512-JQHLKuVJV8lv9Qobmn4aUM2Dpv9WRRLKnNWfM8tN02fAbUtG8mUPsu9q9UYX8P76G4qzytEc5ZKMp/3JggNYmw==}
     engines: {node: '>= 18'}
 
-  ripple-binary-codec@2.8.0:
-    resolution: {integrity: sha512-+NKnOi3hdzjm5dDpoZLUEaYon1jahPlSGnp3YrDoNMSR09ICEqgupN5wpEkPuqJvV75PF/g+W1QUwIXVzbEe7w==}
+  ripple-binary-codec@2.10.0:
+    resolution: {integrity: sha512-H4pBm2WdOMmVnA0HGUdWAShmUFdmqavWAsi2WlMCzOknc1XjrZssa/RxEyziaPww8MXe1OpgGU7uCs8G2nYe/A==}
     engines: {node: '>= 18'}
 
   ripple-keypairs@3.0.0:
@@ -1241,8 +1245,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xrpl@5.0.0:
-    resolution: {integrity: sha512-YqaTFJUnhOu0mI4bsuHbKGj6w9ATcH8EIgw+gOLnh1rrlLTo5oImLQzhKJixCAPqqWOKnsY7J3jsN+l+zeEWgA==}
+  xrpl@5.1.0:
+    resolution: {integrity: sha512-wYTiyrFqV22kwSX2lrUCD10Ns8Zyv2zz8rZ2Pi0KOVm5Sc7/8m7rrca2dAZy1vGhOt36tkvWyX4aC2SQveyT9w==}
     engines: {node: '>=20.19.0'}
 
   yocto-queue@0.1.0:
@@ -1714,6 +1718,8 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  '@xrplf/mpt-crypto@0.1.1': {}
+
   '@xrplf/secret-numbers@3.0.0':
     dependencies:
       '@xrplf/isomorphic': 1.0.2
@@ -2098,7 +2104,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  ripple-binary-codec@2.8.0:
+  ripple-binary-codec@2.10.0:
     dependencies:
       '@xrplf/isomorphic': 1.0.2
       bignumber.js: 10.0.2
@@ -2293,17 +2299,18 @@ snapshots:
 
   ws@8.21.3: {}
 
-  xrpl@5.0.0:
+  xrpl@5.1.0:
     dependencies:
       '@scure/bip32': 2.3.0
       '@scure/bip39': 2.3.0
       '@xrplf/isomorphic': 1.0.2
+      '@xrplf/mpt-crypto': 0.1.1
       '@xrplf/secret-numbers': 3.0.0
       bignumber.js: 10.0.2
       eventemitter3: 5.0.4
       fast-json-stable-stringify: 2.1.0
       ripple-address-codec: 5.0.1
-      ripple-binary-codec: 2.8.0
+      ripple-binary-codec: 2.10.0
       ripple-keypairs: 3.0.0
     transitivePeerDependencies:
       - bufferutil
