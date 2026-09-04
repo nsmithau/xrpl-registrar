@@ -47,6 +47,31 @@ describe("classifyError", () => {
     expect(classifyError({ httpStatus: 404 })).toEqual({ code: "HTTP_404", retryable: false });
   });
 
+  it("reads a fetch network failure through TypeError('fetch failed') and its cause", () => {
+    // Node's fetch wraps socket errors: the outer error is a TypeError with the
+    // real failure on `cause`. Both shapes must be retryable, or one dropped HTTP
+    // connection fails a whole resumable backfill sweep.
+    const reset = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+    expect(classifyError(reset)).toEqual({ code: "ECONNRESET", retryable: true });
+    // undici's own codes, with a message that says nothing on its own — the
+    // specific inner code is what gets reported.
+    const undici = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" }),
+    });
+    expect(classifyError(undici)).toEqual({ code: "UND_ERR_SOCKET", retryable: true });
+    // A bare system error with a code and no recognisable message.
+    expect(classifyError(Object.assign(new Error("x"), { code: "ETIMEDOUT" }))).toEqual({
+      code: "ETIMEDOUT",
+      retryable: true,
+    });
+    // `fetch failed` with an unrecognised cause is still a network failure
+    // (fetch throws it for nothing else), so it stays retryable.
+    const opaque = Object.assign(new TypeError("fetch failed"), { cause: new Error("boom") });
+    expect(classifyError(opaque)).toEqual({ code: "TypeError", retryable: true });
+  });
+
   it("returns non-retryable for unknown or non-error inputs", () => {
     expect(classifyError(new Error("boom"))).toEqual({ code: "Error", retryable: false });
     expect(classifyError(null)).toEqual({ code: undefined, retryable: false });

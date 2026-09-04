@@ -39,7 +39,31 @@ const CONNECTION_ERROR_NAMES = new Set<string>([
  * recognising these by message keeps a retry from giving up mid-reconnection.
  */
 const CONNECTION_ERROR_PATTERN =
-  /disconnect|not connected|connection (?:closed|reset|refused|lost|error)|socket hang up|websocket|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|timed?[- ]?out/i;
+  /disconnect|not connected|connection (?:closed|reset|refused|lost|error)|socket hang up|websocket|fetch failed|ECONNRESET|ECONNREFUSED|EPIPE|ETIMEDOUT|timed?[- ]?out/i;
+
+/**
+ * System / undici error codes that mean the connection failed, not that the
+ * request was wrong. Node's `fetch` wraps these as `TypeError: fetch failed`
+ * with the real failure on `cause` (`{ code: 'ECONNRESET' }`,
+ * `UND_ERR_SOCKET`, …) — so a dropped HTTP connection mid-backfill must be read
+ * through the cause chain, or a single blip kills a resumable sweep.
+ */
+const CONNECTION_ERROR_CODES = new Set<string>([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_ABORTED",
+]);
 
 export interface ErrorClassification {
   /** The xrpld error slug, or a synthetic code for connection failures. */
@@ -88,8 +112,24 @@ export function classifyError(err: unknown): ErrorClassification {
     return { code: name, retryable: true };
   }
 
+  // …or by a system / undici error code (`{ code: 'ECONNRESET' }`).
+  const sysCode = readString(record, "code");
+  if (sysCode !== undefined && CONNECTION_ERROR_CODES.has(sysCode)) {
+    return { code: sysCode, retryable: true };
+  }
+
+  // …or through the `cause` chain: `fetch` throws `TypeError: fetch failed`
+  // and hides the socket error underneath it. Checked before the message so
+  // the reported code is the specific inner one (ECONNRESET, UND_ERR_SOCKET…).
+  const cause = record["cause"];
+  if (cause !== undefined && cause !== err) {
+    const inner = classifyError(cause);
+    if (inner.retryable) return inner;
+  }
+
   // …or by message, for transport errors that arrive as a bare `Error` (no
-  // recognised class name and no xrpld slug) during a reconnection window.
+  // recognised class name and no xrpld slug) during a reconnection window, and
+  // for `fetch failed` itself — fetch only throws that for network failures.
   const message = readString(record, "message");
   if (message !== undefined && CONNECTION_ERROR_PATTERN.test(message)) {
     return { code: name ?? "ConnectionError", retryable: true };
