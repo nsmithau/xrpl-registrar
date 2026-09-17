@@ -92,10 +92,12 @@ this is the default, in-process database, and needs nothing else running.
 To use a **networked Postgres server** instead, comment `DATABASE_DIR` out and set
 `DATABASE_URL` (optionally `DATABASE_POOL_MAX`, `DATABASE_SSL`). Setting both is a
 startup error: they are different archives, and silently choosing one would look
-like data loss. Nothing else about the deployment changes — same schema, same
-service, and the systemd unit's writable data path simply goes unused. Back up
-whichever one you configured: with `DATABASE_URL` the archive lives on the
-Postgres server, and `/var/lib/xrpl-registrar` will be empty.
+like data loss. Run **one service process** against that URL — the concurrency
+governor is still in-process, so a second replica would double upstream Clio
+load; the shared-governor half of that work is still open (ROADMAP #3). Same
+schema, same service, and the systemd unit's writable data path simply goes
+unused. Back up whichever one you configured: with `DATABASE_URL` the archive
+lives on the Postgres server, and `/var/lib/xrpl-registrar` will be empty.
 
 Every variable is documented in
 [`xrpl-registrar.env.example`](xrpl-registrar.env.example) and the

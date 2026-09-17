@@ -37,9 +37,15 @@ only rows **exclusive** to the issuance, in one transaction, then `VACUUM`s:
    or `balance_deltas` row. A transaction reachable from a shared issuer or
    another issuance's account is retained.
 4. Delete the `issuances` row.
-5. `VACUUM (FULL)` (fallback plain `VACUUM`) to reclaim disk — outside the
-   transaction, since `VACUUM` cannot run inside one. Best-effort: a compaction
-   failure does not undo the delete; the response reports `compacted`.
+5. Compact outside the transaction (`VACUUM` cannot run inside one). Best-effort:
+   a compaction failure does not undo the delete; the response reports
+   `compacted`.
+   - **PGlite:** `VACUUM (FULL)`, falling back to plain `VACUUM`. FULL rewrites
+     the file and returns space to the OS; this is a single-writer database, so
+     the exclusive lock is just the process talking to itself.
+   - **Networked Postgres:** plain `VACUUM` only. `VACUUM (FULL)` takes ACCESS
+     EXCLUSIVE on every table and would stall the live tail, backfill, and read
+     API. Autovacuum reclaims the rest.
 
 **Concurrency.** The delete + vacuum takes an exclusive, potentially slow path,
 so while it runs the admin server rejects other **mutating** calls

@@ -18,13 +18,18 @@ export class AccountRepository {
   /**
    * Upsert accounts (append-only, earliest ledger wins) and their
    * `account_issuance` membership. Idempotent — safe to re-run discovery.
+   * Addresses are sorted so concurrent upserts take row locks in a consistent
+   * order (same reason as `insertTransactionRowsMany`).
    */
   async recordDiscovered(
     issuanceId: number,
     accounts: readonly DiscoveredAccount[],
   ): Promise<void> {
     await this.#db.transaction(async (tx) => {
-      for (const account of accounts) {
+      const ordered = [...accounts].sort((a, b) =>
+        a.address < b.address ? -1 : a.address > b.address ? 1 : 0,
+      );
+      for (const account of ordered) {
         await tx.query(
           `INSERT INTO accounts (address, first_seen_ledger)
            VALUES ($1, $2)

@@ -78,7 +78,8 @@ export async function insertDelta(tx: Queryable, issuanceId: number, row: DeltaR
  * Both statements insert in primary-key order. On the networked Postgres
  * engine these run as concurrent transactions over overlapping accounts and
  * hashes, and a consistent lock order is what keeps that from deadlocking —
- * see the note on `insertTransactionRowsMany`.
+ * see the note on `insertTransactionRowsMany`. Statements are chunked to stay
+ * under Postgres's 65535-parameter limit, matching the transaction batch path.
  */
 export async function insertDeltasMany(
   tx: Queryable,
@@ -88,10 +89,13 @@ export async function insertDeltasMany(
   if (rows.length === 0) return;
 
   const addresses = [...new Set(rows.map((r) => r.address))].sort();
-  await tx.query(
-    `INSERT INTO accounts (address) VALUES ${addresses.map((_, i) => `($${i + 1})`).join(", ")}
-     ON CONFLICT (address) DO NOTHING`,
+  await insertChunked(
+    tx,
+    1,
     addresses,
+    `INSERT INTO accounts (address) VALUES `,
+    ` ON CONFLICT (address) DO NOTHING`,
+    (address) => [address],
   );
 
   const ordered = [...rows].sort((a, b) =>
@@ -105,17 +109,46 @@ export async function insertDeltasMany(
             ? 1
             : 0,
   );
-  const params: unknown[] = [issuanceId];
-  const tuples = ordered.map((r) => {
-    const h = params.push(r.hash);
-    const a = params.push(r.address);
-    const d = params.push(r.delta.toString());
-    return `($${h}, $${a}, $1, $${d})`;
-  });
-  await tx.query(
-    `INSERT INTO balance_deltas (hash, address, issuance_id, delta)
-     VALUES ${tuples.join(", ")}
-     ON CONFLICT (hash, address, issuance_id) DO UPDATE SET delta = EXCLUDED.delta`,
-    params,
-  );
+  const perStatement = Math.max(1, Math.floor(60_000 / 3));
+  for (let start = 0; start < ordered.length; start += perStatement) {
+    const chunk = ordered.slice(start, start + perStatement);
+    const params: unknown[] = [issuanceId];
+    const tuples = chunk.map((r) => {
+      const h = params.push(r.hash);
+      const a = params.push(r.address);
+      const d = params.push(r.delta.toString());
+      return `($${h}, $${a}, $1, $${d})`;
+    });
+    await tx.query(
+      `INSERT INTO balance_deltas (hash, address, issuance_id, delta)
+       VALUES ${tuples.join(", ")}
+       ON CONFLICT (hash, address, issuance_id) DO UPDATE SET delta = EXCLUDED.delta`,
+      params,
+    );
+  }
+}
+
+/** Execute a multi-row INSERT in chunks that stay under Postgres's 65535-param
+ * limit (~60000/columns rows per statement). */
+async function insertChunked<T>(
+  q: Queryable,
+  columns: number,
+  rows: readonly T[],
+  prefix: string,
+  suffix: string,
+  toParams: (row: T) => unknown[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const perStatement = Math.max(1, Math.floor(60_000 / columns));
+  for (let start = 0; start < rows.length; start += perStatement) {
+    const chunk = rows.slice(start, start + perStatement);
+    const params: unknown[] = [];
+    const groups = chunk.map((row) => {
+      const values = toParams(row);
+      const placeholders = values.map((_, i) => `$${params.length + i + 1}`);
+      params.push(...values);
+      return `(${placeholders.join(", ")})`;
+    });
+    await q.query(prefix + groups.join(", ") + suffix, params);
+  }
 }

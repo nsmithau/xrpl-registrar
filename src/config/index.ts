@@ -57,6 +57,46 @@ function intFromEnv(value: string | undefined, fallback: number): number {
   return parsed;
 }
 
+function positiveIntFromEnv(value: string, name: string): number {
+  const parsed = intFromEnv(value, 0);
+  if (parsed < 1) {
+    throw new Error(`${name} must be a positive integer, got: ${value}`);
+  }
+  return parsed;
+}
+
+/** Hostname from a Postgres URI, or undefined if the URI is unparseable. */
+function postgresHostname(connectionString: string): string | undefined {
+  try {
+    const host = new URL(connectionString).hostname;
+    return host === "" ? undefined : host;
+  } catch {
+    return undefined;
+  }
+}
+
+function isLoopbackHostname(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
+/**
+ * TLS for the Postgres engine.
+ *
+ * An explicit `DATABASE_SSL` always wins. When it is unset, a non-loopback host
+ * defaults to TLS on (fail-closed for a credential-bearing remote connection)
+ * and loopback / unparseable URIs leave `ssl` unset so the URL's `sslmode` or
+ * `PGSSLMODE` can still apply. Passing `ssl: false` unconditionally would
+ * disable both of those.
+ */
+function sslOption(env: NodeJS.ProcessEnv, connectionString: string): boolean | undefined {
+  const raw = env.DATABASE_SSL?.trim();
+  if (raw) return boolFromEnv(raw, false);
+  const host = postgresHostname(connectionString);
+  if (host !== undefined && !isLoopbackHostname(host)) return true;
+  return undefined;
+}
+
 /**
  * Choose the storage engine from the environment.
  *
@@ -86,12 +126,13 @@ function loadDbConfig(env: NodeJS.ProcessEnv): ArchiveDatabaseOptions {
   if (!url) return { engine: "pglite", ...(dataDir ? { dataDir } : {}) };
 
   const poolMax = env.DATABASE_POOL_MAX?.trim();
+  const ssl = sslOption(env, url);
   return {
     engine: "postgres",
     connectionString: url,
-    ssl: boolFromEnv(env.DATABASE_SSL, false),
     applicationName: "xrpl-registrar",
-    ...(poolMax ? { max: intFromEnv(poolMax, 0) } : {}),
+    ...(ssl !== undefined ? { ssl } : {}),
+    ...(poolMax ? { max: positiveIntFromEnv(poolMax, "DATABASE_POOL_MAX") } : {}),
   };
 }
 

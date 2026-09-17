@@ -15,6 +15,7 @@
 import pg from "pg";
 
 import { openArchiveDatabase, PostgresDatabase, type Database } from "../src/db/index.js";
+import { nullLogger } from "../src/logging/logger.js";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL?.trim() || undefined;
 
@@ -52,6 +53,7 @@ async function withAdminClient(fn: (c: pg.Client) => Promise<void>): Promise<voi
  */
 function droppingSchemaOnClose(db: Database, schema: string): Database {
   return {
+    engine: db.engine,
     query: db.query.bind(db),
     exec: db.exec.bind(db),
     transaction: db.transaction.bind(db),
@@ -81,6 +83,7 @@ async function openPostgresTestDatabase(migrate: boolean): Promise<Database> {
     connectionString: TEST_DATABASE_URL!,
     schema,
     max: TEST_POOL_MAX,
+    logger: nullLogger,
   };
   const db = migrate ? await openArchiveDatabase(options) : PostgresDatabase.open(options);
   return droppingSchemaOnClose(db, schema);
@@ -122,5 +125,6 @@ export async function openSecondHandle(db: Database): Promise<Database> {
     connectionString: TEST_DATABASE_URL!,
     schema,
     max: TEST_POOL_MAX,
+    logger: nullLogger,
   });
 }

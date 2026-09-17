@@ -360,7 +360,9 @@ export class AdminApi {
    *   when no other issuance uses it), with their `coverage`/jobs/`account_transactions`;
    * - transactions thereby left unreferenced by any remaining account or delta.
    * A transaction reachable from a shared issuer or another issuance's accounts
-   * is retained. Runs in one transaction, then `VACUUM (FULL)` to reclaim disk.
+   * is retained. Runs in one transaction, then compact: `VACUUM (FULL)` on
+   * PGlite (reclaims to the OS), plain `VACUUM` on networked Postgres (FULL
+   * would exclusive-lock the live archive).
    *
    * Returns null if the issuance does not exist.
    */
@@ -440,10 +442,17 @@ export class AdminApi {
   }
 
   /** Reclaim disk after a delete. VACUUM cannot run in a transaction block, so
-   * this runs after the delete commits. Best-effort: FULL reclaims to the OS,
-   * plain VACUUM is the fallback; a failure does not undo the delete. */
+   * this runs after the delete commits. Best-effort: a failure does not undo
+   * the delete.
+   *
+   * PGlite is a single-writer file: `VACUUM (FULL)` rewrites it and returns
+   * space to the OS, with plain `VACUUM` as fallback. Networked Postgres is a
+   * live server — FULL takes ACCESS EXCLUSIVE on every table and would stall
+   * the tail, backfill, and read API — so that path is a plain `VACUUM` and
+   * leaves the rest to autovacuum. */
   async #compact(): Promise<boolean> {
-    for (const stmt of ["VACUUM (FULL)", "VACUUM"]) {
+    const stmts = this.#db.engine === "postgres" ? ["VACUUM"] : ["VACUUM (FULL)", "VACUUM"];
+    for (const stmt of stmts) {
       try {
         await this.#db.exec(stmt);
         return true;

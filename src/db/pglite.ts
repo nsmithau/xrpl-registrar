@@ -12,6 +12,7 @@ export interface PgliteOptions {
 
 /** In-process Postgres backed by PGlite — no separate server or container. */
 export class PgliteDatabase implements Database {
+  readonly engine = "pglite" as const;
   readonly #pg: PGlite;
 
   private constructor(pg: PGlite) {

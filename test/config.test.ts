@@ -63,7 +63,19 @@ describe("loadConfig", () => {
       expect(db).toEqual({
         engine: "postgres",
         connectionString: "postgres://u:p@host:5432/archive",
-        ssl: false,
+        ssl: true,
+        applicationName: "xrpl-registrar",
+      });
+    });
+
+    it("does not force TLS for a loopback URL, so sslmode / PGSSLMODE still apply", () => {
+      const db = loadConfig({
+        ...base,
+        DATABASE_URL: "postgres://u:p@127.0.0.1:5432/archive",
+      }).db;
+      expect(db).toEqual({
+        engine: "postgres",
+        connectionString: "postgres://u:p@127.0.0.1:5432/archive",
         applicationName: "xrpl-registrar",
       });
     });
@@ -76,6 +88,24 @@ describe("loadConfig", () => {
         DATABASE_SSL: "true",
       }).db;
       expect(db).toMatchObject({ engine: "postgres", max: 25, ssl: true });
+    });
+
+    it("honours DATABASE_SSL=false against a remote host", () => {
+      const db = loadConfig({
+        ...base,
+        DATABASE_URL: "postgres://host/archive",
+        DATABASE_SSL: "false",
+      }).db;
+      expect(db).toMatchObject({ engine: "postgres", ssl: false });
+    });
+
+    it("rejects a non-positive pool size", () => {
+      expect(() =>
+        loadConfig({ ...base, DATABASE_URL: "postgres://host/archive", DATABASE_POOL_MAX: "0" }),
+      ).toThrow(/positive integer/);
+      expect(() =>
+        loadConfig({ ...base, DATABASE_URL: "postgres://host/archive", DATABASE_POOL_MAX: "-1" }),
+      ).toThrow(/positive integer/);
     });
 
     // The two point at different archives, so picking one silently could look

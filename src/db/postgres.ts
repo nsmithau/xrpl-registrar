@@ -16,6 +16,7 @@
  */
 import pg from "pg";
 
+import { consoleLogger, type Logger } from "../logging/logger.js";
 import type { Database, Queryable, QueryResult, Row } from "./database.js";
 
 export interface PostgresOptions {
@@ -28,7 +29,7 @@ export interface PostgresOptions {
    * give to anything else sharing it.
    */
   readonly max?: number;
-  /** Require TLS to the server. */
+  /** Require TLS to the server. Omit to leave TLS to the URL / `PGSSLMODE`. */
   readonly ssl?: boolean;
   /** Reported as `application_name`, so `pg_stat_activity` names us. */
   readonly applicationName?: string;
@@ -50,6 +51,11 @@ export interface PostgresOptions {
    * idempotency precondition this relies on.
    */
   readonly maxTransactionRetries?: number;
+  /**
+   * Structured logger for deadlock retries and idle-client errors. Defaults to
+   * the process stderr logger; tests pass a no-op so expected contention is quiet.
+   */
+  readonly logger?: Logger;
 }
 
 const DEFAULT_MAX_CONNECTIONS = 10;
@@ -187,26 +193,31 @@ function queryableOf(target: pg.Pool | pg.PoolClient): Queryable {
 
 /** Postgres over the network, via a connection pool. */
 export class PostgresDatabase implements Database {
+  readonly engine = "postgres" as const;
   readonly #pool: pg.Pool;
   readonly #queryable: Queryable;
   readonly #maxRetries: number;
   readonly #clientConfig: pg.ClientConfig;
   readonly #schemaLockKey: number;
+  readonly #logger: Logger;
 
   private constructor(
     pool: pg.Pool,
     clientConfig: pg.ClientConfig,
     maxRetries: number,
     schemaLockKeyValue: number,
+    logger: Logger,
   ) {
     this.#pool = pool;
     this.#queryable = queryableOf(pool);
     this.#maxRetries = maxRetries;
     this.#clientConfig = clientConfig;
     this.#schemaLockKey = schemaLockKeyValue;
+    this.#logger = logger;
   }
 
   static open(options: PostgresOptions): PostgresDatabase {
+    const logger = options.logger ?? consoleLogger;
     const clientConfig: pg.ClientConfig = {
       connectionString: options.connectionString,
       types: TYPE_OVERRIDES,
@@ -225,13 +236,17 @@ export class PostgresDatabase implements Database {
     // A pooled connection can be dropped by the server (restart, idle timeout)
     // while sitting unused in the pool. `pg` emits that on the pool, and an
     // unhandled 'error' event would take the process down — the pool discards
-    // the connection and carries on by itself, so this only needs to exist.
-    pool.on("error", () => {});
+    // the connection and carries on by itself. Log it so a flapping server is
+    // visible rather than a silent reconnect.
+    pool.on("error", (err: Error) => {
+      logger.warn("postgres pool idle client error", { error: err.message });
+    });
     return new PostgresDatabase(
       pool,
       clientConfig,
       options.maxTransactionRetries ?? DEFAULT_MAX_TRANSACTION_RETRIES,
       schemaLockKey(options.schema),
+      logger,
     );
   }
 
@@ -260,6 +275,12 @@ export class PostgresDatabase implements Database {
       const outcome = await this.#attempt(fn);
       if (outcome.ok) return outcome.value;
       if (!isRetryable(outcome.error) || attempt >= this.#maxRetries) throw outcome.error;
+      const code = (outcome.error as { code?: unknown } | null)?.code;
+      this.#logger.warn("postgres transaction retry", {
+        attempt: attempt + 1,
+        maxRetries: this.#maxRetries,
+        ...(typeof code === "string" ? { code } : {}),
+      });
       // Backs off with the connection already returned to the pool, so a
       // contended write does not also hold a slot while it waits.
       await sleep(retryDelayMs(attempt));

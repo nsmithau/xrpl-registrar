@@ -34,6 +34,9 @@ describe.skipIf(!usingPostgres)("PostgresDatabase", () => {
   });
 
   describe("type mapping", () => {
+    it("reports itself as the postgres engine", () => {
+      expect(db.engine).toBe("postgres");
+    });
     // pg returns int8 as a string by default; PGlite returns a number. The
     // repositories coerce either way, but the engines must agree or the two
     // test runs are not really running the same assertions.

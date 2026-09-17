@@ -102,11 +102,11 @@ export async function backfillGap(
           t,
           batch.map((b) => b.row),
         );
-        for (const b of batch) {
-          await deriveDeltas(t, b.row.hash, b.meta);
-          count += 1;
-        }
+        for (const b of batch) await deriveDeltas(t, b.row.hash, b.meta);
       });
+      // After commit: a deadlock retry re-runs the callback, so counting inside
+      // it would inflate the progress figure while the SQL rolled back.
+      count += batch.length;
       // Post-commit: streaming discovery over the healed transactions.
       for (const b of batch) onEntry(b.meta);
       if (count - lastLogged >= HEAL_PROGRESS_EVERY) {

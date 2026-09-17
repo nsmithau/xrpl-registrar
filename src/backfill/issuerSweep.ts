@@ -170,14 +170,13 @@ export async function runIssuerBackfill(
             t,
             batch.map((b) => b.row),
           );
-          for (const b of batch) {
-            await deriveDeltas(t, b.row.hash, b.meta);
-            ingested += 1;
-          }
+          for (const b of batch) await deriveDeltas(t, b.row.hash, b.meta);
         }
         // Record holders discovered on this page atomically with the checkpoint,
         // so a resume never loses a discovery made before the crash.
-        for (const [holder, ledger] of firstLedger)
+        for (const [holder, ledger] of [...firstLedger].sort(([a], [b]) =>
+          a < b ? -1 : a > b ? 1 : 0,
+        ))
           await recordHolder(t, issuance.id, holder, ledger);
         await checkpointJob(t, job.id, page.marker, batch.length);
         if (isFinal) {
@@ -190,6 +189,9 @@ export async function runIssuerBackfill(
         logger.info("issuer backfill stopped", { issuer, ingested });
         break;
       }
+      // After commit: a deadlock retry re-runs the callback, so counting inside
+      // it would inflate the progress figure while the SQL rolled back.
+      ingested += batch.length;
 
       if (ingested - lastProgress >= PROGRESS_EVERY) {
         lastProgress = ingested;
@@ -257,7 +259,8 @@ async function claimCoverage(
   const reason = `issuer sweep ${issuer} [${from},${to}]`;
   await t.query(
     `INSERT INTO coverage (address, from_ledger, to_ledger, reason)
-     SELECT address, $2, $3, $4 FROM account_issuance WHERE issuance_id = $1`,
+     SELECT address, $2, $3, $4 FROM account_issuance WHERE issuance_id = $1
+     ORDER BY address`,
     [issuanceId, floor, to, reason],
   );
   await t.query(

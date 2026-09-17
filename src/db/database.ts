@@ -2,9 +2,9 @@
  * Storage abstraction.
  *
  * Repositories depend only on these interfaces, never on a concrete driver.
- * Today the only implementation is in-process PGlite (real Postgres, no
- * container); a networked `pg`-backed implementation can satisfy the same
- * interface later without touching a single repository.
+ * Two engines satisfy it: in-process PGlite (the default) and networked
+ * Postgres (`pg`). Callers that must branch — today, post-delete compaction —
+ * read `engine` rather than sniffing at the driver.
  */
 
 export type Row = Record<string, unknown>;
@@ -23,6 +23,8 @@ export interface Queryable {
 }
 
 export interface Database extends Queryable {
+  /** Which engine backs this handle. */
+  readonly engine: "pglite" | "postgres";
   /** Run `fn` inside a transaction; commit on resolve, roll back on throw. */
   transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
   /**

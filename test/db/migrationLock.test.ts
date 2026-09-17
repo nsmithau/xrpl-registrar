@@ -27,6 +27,7 @@ const MIGRATORS = 5;
  */
 function withoutLock(db: Database): Database {
   return {
+    engine: db.engine,
     query: db.query.bind(db),
     exec: db.exec.bind(db),
     transaction: db.transaction.bind(db),
