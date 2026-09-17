@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ClioRequest } from "../../src/clio/types.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
 import { runIssuerBackfill, type MappedEntry } from "../../src/backfill/issuerSweep.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import type { Queryable } from "../../src/db/database.js";
 import { BackfillJobRepository, type BackfillJob } from "../../src/db/repositories/backfillJobs.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
@@ -55,7 +56,7 @@ async function setup(
 describe("runIssuerBackfill", () => {
   let db: Database;
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
   afterEach(async () => {
     await db.close();

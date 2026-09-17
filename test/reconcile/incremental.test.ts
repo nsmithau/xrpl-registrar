@@ -1,7 +1,8 @@
 import { encode } from "xrpl";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import {
@@ -72,7 +73,7 @@ describe("deriveTxDeltas", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
   afterEach(async () => {
     await db.close();

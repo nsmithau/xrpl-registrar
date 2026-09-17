@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { BackfillWorker } from "../../src/backfill/worker.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
@@ -63,7 +64,7 @@ describe("BackfillWorker", () => {
   let issuanceId: number;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     const issuance = await new IssuanceRepository(db).create({
       kind: "mpt",
       mptIssuanceId: "MPT_A",

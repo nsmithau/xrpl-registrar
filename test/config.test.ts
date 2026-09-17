@@ -43,4 +43,53 @@ describe("loadConfig", () => {
       loadConfig({ CLIO_ENDPOINT: "wss://clio.example", CLIO_MAX_RETRIES: "lots" }),
     ).toThrow(/Expected an integer/);
   });
+
+  describe("storage engine selection", () => {
+    const base = { CLIO_ENDPOINT: "wss://clio.example" };
+
+    it("defaults to the in-process engine, ephemeral when DATABASE_DIR is unset", () => {
+      expect(loadConfig(base).db).toEqual({ engine: "pglite" });
+    });
+
+    it("persists the in-process engine at DATABASE_DIR", () => {
+      expect(loadConfig({ ...base, DATABASE_DIR: "./data" }).db).toEqual({
+        engine: "pglite",
+        dataDir: "./data",
+      });
+    });
+
+    it("selects networked Postgres when DATABASE_URL is set", () => {
+      const db = loadConfig({ ...base, DATABASE_URL: "postgres://u:p@host:5432/archive" }).db;
+      expect(db).toEqual({
+        engine: "postgres",
+        connectionString: "postgres://u:p@host:5432/archive",
+        ssl: false,
+        applicationName: "xrpl-registrar",
+      });
+    });
+
+    it("reads the optional pool size and TLS flag", () => {
+      const db = loadConfig({
+        ...base,
+        DATABASE_URL: "postgres://host/archive",
+        DATABASE_POOL_MAX: "25",
+        DATABASE_SSL: "true",
+      }).db;
+      expect(db).toMatchObject({ engine: "postgres", max: 25, ssl: true });
+    });
+
+    // The two point at different archives, so picking one silently could look
+    // like data loss to an operator who added a URL to a PGlite deployment.
+    it("refuses to guess when both engines are configured", () => {
+      expect(() =>
+        loadConfig({ ...base, DATABASE_URL: "postgres://host/archive", DATABASE_DIR: "./data" }),
+      ).toThrow(/both set/);
+    });
+
+    it("rejects a malformed boolean rather than treating it as false", () => {
+      expect(() =>
+        loadConfig({ ...base, DATABASE_URL: "postgres://host/archive", DATABASE_SSL: "maybe" }),
+      ).toThrow(/Expected a boolean/);
+    });
+  });
 });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import {
   TransactionRepository,
   insertTransactionRowsMany,
@@ -23,7 +24,7 @@ describe("TransactionRepository", () => {
   let repo: TransactionRepository;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     repo = new TransactionRepository(db);
   });
 
@@ -103,7 +104,7 @@ describe("insertTransactionRowsMany (batch)", () => {
     );
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
   afterEach(async () => {
     await db.close();

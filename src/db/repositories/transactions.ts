@@ -48,7 +48,8 @@ export async function insertTransactionRows(q: Queryable, tx: IngestTransaction)
     ],
   );
 
-  for (const address of tx.accounts) {
+  // Sorted for the same lock-ordering reason as the batch path below.
+  for (const address of [...tx.accounts].sort()) {
     // Accounts are append-only; keep the earliest ledger we have seen.
     await q.query(
       `INSERT INTO accounts (address, first_seen_ledger)
@@ -74,6 +75,15 @@ export async function insertTransactionRows(q: Queryable, tx: IngestTransaction)
  * matters because the query engine (in-process PGlite) runs on the main thread.
  * Same idempotency as the single-row version. Multi-row statements are chunked
  * to stay under the parameter limit.
+ *
+ * Rows are sorted by primary key before each statement. That is not cosmetic:
+ * on the networked Postgres engine the backfill worker's concurrent account
+ * loops and the gap heal's concurrent issuer sweeps run as genuinely
+ * concurrent transactions over overlapping hashes and addresses, and two of
+ * them taking the same row locks in opposite orders is precisely how a
+ * deadlock is produced. A consistent order turns almost all of those into
+ * ordinary lock waits; `PostgresDatabase.transaction` retries the remainder.
+ * On PGlite (single-threaded) the sort costs a little and changes nothing.
  */
 export async function insertTransactionRowsMany(
   q: Queryable,
@@ -84,7 +94,9 @@ export async function insertTransactionRowsMany(
   // transactions — one row per distinct hash. Insert before account_transactions
   // (which references it).
   const seenTx = new Set<string>();
-  const txRows = txs.filter((tx) => (seenTx.has(tx.hash) ? false : (seenTx.add(tx.hash), true)));
+  const txRows = txs
+    .filter((tx) => (seenTx.has(tx.hash) ? false : (seenTx.add(tx.hash), true)))
+    .sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0));
   await insertChunked(
     q,
     10,
@@ -117,7 +129,7 @@ export async function insertTransactionRowsMany(
   await insertChunked(
     q,
     2,
-    [...earliest],
+    [...earliest].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     `INSERT INTO accounts (address, first_seen_ledger) VALUES `,
     ` ON CONFLICT (address) DO UPDATE SET first_seen_ledger = LEAST(accounts.first_seen_ledger, EXCLUDED.first_seen_ledger)`,
     ([address, ledger]) => [address, ledger],
@@ -135,6 +147,9 @@ export async function insertTransactionRowsMany(
       }
     }
   }
+  links.sort((x, y) =>
+    x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0,
+  );
   await insertChunked(
     q,
     2,

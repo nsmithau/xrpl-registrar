@@ -2,7 +2,8 @@ import { encode } from "xrpl";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AdminApi } from "../../src/admin/adminApi.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
@@ -17,7 +18,7 @@ describe("AdminApi", () => {
   let api: AdminApi;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     api = new AdminApi(db);
   });
   afterEach(async () => {

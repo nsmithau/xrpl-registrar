@@ -1,0 +1,30 @@
+# Postgres for `pnpm test:pg`. Not used by `pnpm test`, which runs the same
+# suites on in-process PGlite and needs nothing running.
+#
+#   pnpm pg:up && pnpm test:pg && pnpm pg:down
+#
+# Works with Docker Desktop, colima, or any other Docker-compatible runtime.
+# Under colima you may need to point the CLI at its socket first:
+#   export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: xrpl_registrar_test
+    ports:
+      # 55432, not 5432, so it cannot collide with a Postgres already on the host.
+      - "55432:5432"
+    # Suites run in parallel vitest workers, each holding a small pool, and the
+    # concurrency tests deliberately contend. The default 100 is ample, but be
+    # explicit so a busy run fails a test rather than the connection attempt.
+    command: ["postgres", "-c", "max_connections=200"]
+    tmpfs:
+      # Throwaway data: keep it in RAM. Nothing here should survive the run.
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xrpl_registrar_test"]
+      interval: 1s
+      timeout: 5s
+      retries: 30

@@ -17,6 +17,44 @@ pnpm lint
 pnpm build
 ```
 
+### Testing against a real Postgres
+
+Storage has two engines behind one interface: in-process PGlite (the default)
+and a networked Postgres server. `pnpm test` covers the first; `pnpm test:pg`
+runs the **same** suites against the second, plus suites that can only mean
+something there — concurrent writers, driver type mapping, and cross-process
+migration locking — which skip on PGlite.
+
+```bash
+pnpm pg:up      # postgres:17 on port 55432 (docker-compose.test.yml)
+pnpm test:pg
+pnpm pg:down
+```
+
+Run it if you touch anything under `src/db/`, the batch writers, or migrations.
+PGlite serialises every statement on one thread, so a contention bug cannot
+appear there at all — `pnpm test` passing tells you nothing about concurrency.
+
+Two conventions in those suites are deliberate, and worth keeping:
+
+- **Every "does not deadlock" test is paired with a control that does.** A
+  concurrency test that never actually contends passes for the wrong reason,
+  and looks identical to one that works. If a control stops failing, the pair
+  needs rethinking rather than deleting.
+- **Use `openTestDatabase()` from `test/dbHelpers.ts`,** never
+  `openArchiveDatabase()` directly — that is what lets one suite run on both
+  engines, and on Postgres it isolates each suite in its own schema.
+
+Using [colima](https://github.com/abiosoft/colima) rather than Docker Desktop,
+you may need to point the CLI at its socket first — a `DOCKER_HOST` in your
+shell profile silently overrides the active `docker context`:
+
+```bash
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+```
+
+### Live smoke test
+
 The live smoke test needs a full-history Clio endpoint:
 
 ```bash
@@ -55,7 +93,9 @@ resumes from its last checkpoint, but for a clean long ingest prefer `pnpm serve
 
 1. Fork and branch from `main`.
 2. Make sure `pnpm typecheck && pnpm lint && pnpm test && pnpm build` pass
-   locally; CI runs the same on Node 22 and 24.
+   locally; CI runs the same on Node 22 and 24. If you touched storage, run
+   `pnpm test:pg` too — CI runs that as a separate job and it catches what
+   PGlite structurally cannot.
 3. Open a PR describing the change, the failure mode it fixes or the capability
    it adds, and how you verified it. Link any ADR you touched.
 

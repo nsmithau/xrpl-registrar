@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 
 describe("IssuanceRepository", () => {
@@ -8,7 +9,7 @@ describe("IssuanceRepository", () => {
   let repo: IssuanceRepository;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     repo = new IssuanceRepository(db);
   });
 

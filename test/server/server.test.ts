@@ -6,7 +6,8 @@ import { ArchiveApi } from "../../src/api/handler.js";
 import type { Forwarder, ForwardResult } from "../../src/api/forwarder.js";
 import type { ApiRequest } from "../../src/api/types.js";
 import { ArchiveServer } from "../../src/server/server.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 
@@ -58,7 +59,7 @@ describe("ArchiveServer", () => {
   let port: number;
 
   beforeAll(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: "MPT_A" });
     const txns = new TransactionRepository(db);
     await txns.ingest({

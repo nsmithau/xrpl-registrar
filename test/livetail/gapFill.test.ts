@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import type { BinaryTxEntry } from "../../src/backfill/pages.js";
 import type { MappedEntry } from "../../src/backfill/issuerSweep.js";
 import { backfillGap } from "../../src/livetail/gapFill.js";
@@ -13,7 +14,7 @@ describe("backfillGap", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
 
   afterEach(async () => {

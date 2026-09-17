@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 
@@ -10,7 +11,7 @@ describe("AccountRepository", () => {
   let issuanceId: number;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     accounts = new AccountRepository(db);
     const issuance = await new IssuanceRepository(db).create({
       kind: "mpt",

@@ -5,7 +5,8 @@ import { AdminApi } from "../../src/admin/adminApi.js";
 import { AdminServer } from "../../src/admin/adminServer.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import type { IssuanceRecord } from "../../src/db/repositories/issuances.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 
 const TOKEN = "s3cret-admin-token";
 
@@ -22,7 +23,7 @@ describe("AdminServer", () => {
   });
 
   beforeAll(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     activity = new ActivityRegistry();
     server = new AdminServer({
       api: new AdminApi(db, activity),
@@ -205,7 +206,7 @@ describe("AdminServer", () => {
   });
 
   it("awaits onBeforeDelete (draining in-flight work) before it purges", async () => {
-    const db2 = await openArchiveDatabase();
+    const db2 = await openTestDatabase();
     const api2 = new AdminApi(db2);
     const order: string[] = [];
     let entered: () => void = () => {};
@@ -249,7 +250,7 @@ describe("AdminServer", () => {
   });
 
   it("fires onDeleteAborted (not onDeleted) when the id is unknown or the purge fails", async () => {
-    const db2 = await openArchiveDatabase();
+    const db2 = await openTestDatabase();
     const api2 = new AdminApi(db2);
     const aborted: number[] = [];
     const deleted: number[] = [];
@@ -286,7 +287,7 @@ describe("AdminServer", () => {
   it("rejects other mutations with 409 while a delete + vacuum is in progress", async () => {
     // A dedicated server whose delete hangs on a gate, so the maintenance lock
     // stays held while we fire a concurrent registration.
-    const db2 = await openArchiveDatabase();
+    const db2 = await openTestDatabase();
     const api2 = new AdminApi(db2);
     let locked: () => void = () => {};
     const lockHeld = new Promise<void>((r) => (locked = r));

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { encode } from "xrpl";
 
 import { hexToBytes } from "../../src/util/hex.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import { ArchiveApi } from "../../src/api/handler.js";
@@ -59,7 +60,7 @@ describe("ArchiveApi", () => {
   let forwarder: FakeForwarder;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     await seed(db);
     forwarder = new FakeForwarder();
     api = new ArchiveApi({ db, forwarder });

@@ -4,7 +4,8 @@ import Big from "big.js";
 import { iouDeltas, toIouBalances } from "../../src/reconcile/iou.js";
 import { compareDecimalBalances } from "../../src/reconcile/reconciler.js";
 import { BalanceDeltaRepository } from "../../src/reconcile/balanceDeltas.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 
@@ -114,7 +115,7 @@ describe("BalanceDeltaRepository decimal sums", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
   afterEach(async () => {
     await db.close();

@@ -10,7 +10,9 @@ Clio stores the full XRPL history in ScyllaDB (Cassandra-compatible). Since we s
 
 ## Decision
 
-Store the archive in **Postgres**. For development, test, and small single-issuer deployments, run it **in-process via [PGlite](https://pglite.dev/)** — a real Postgres (WASM) with the genuine SQL dialect, no container, no separate server to operate. A networked Postgres server (`pg` driver) is the intended path for larger deployments — not yet implemented ([ROADMAP #3](../ROADMAP.md)); PGlite is the only engine today — and must sit behind the same data-access interface, so the engine is swappable without touching call sites.
+Store the archive in **Postgres**. For development, test, and small single-issuer deployments, run it **in-process via [PGlite](https://pglite.dev/)** — a real Postgres (WASM) with the genuine SQL dialect, no container, no separate server to operate. A networked Postgres server (`pg` driver) is available for larger deployments, selected with `DATABASE_URL`. Both sit behind the same data-access interface, so the engine is swappable without touching call sites.
+
+**Update (2026-09-17):** the networked `pg` engine is now implemented (`src/db/postgres.ts`). PGlite remains the default — a self-hosting issuer should not need a database server to stand up — and the two are never both configured: setting `DATABASE_URL` and `DATABASE_DIR` together is an error rather than a precedence rule, because they are different archives and silently choosing one would read as data loss. No schema or repository SQL changed. See [Consequences](#consequences) for the one thing that did.
 
 ## The point that settles it
 
@@ -42,7 +44,15 @@ Store the archive in **Postgres**. For development, test, and small single-issue
 
 ## Consequences
 
-- Storage sits behind a small data-access interface (`query` / `exec` / `transaction`). PGlite backs it now; a networked `pg` implementation can back it later with no change to repositories.
+- Storage sits behind a small data-access interface (`query` / `exec` / `transaction`). Both PGlite and networked `pg` back it, with no change to repositories.
+
+- **Swapping the engine changes concurrency, and nothing else.** This is the one consequence that is invisible from the call site and the reason several pieces of code exist that otherwise look like overkill. PGlite serialises every statement on a single thread, so the backfill worker's four concurrent account loops and the gap heal's four concurrent issuer sweeps interleave but never truly contend. On a connection pool they become genuinely concurrent transactions upserting overlapping rows in `accounts`, `transactions`, and `balance_deltas` — so deadlocks are an expected operating condition, not a defect. Three things follow, and none should be removed as redundant:
+
+  - The batch writers (`insertTransactionRowsMany`, `insertDeltasMany`) sort rows by primary key, so concurrent transactions take row locks in a consistent order. Measured: without it, two transactions touching the same rows in opposite orders deadlock reliably; with it, they serialise instead.
+  - `PostgresDatabase.transaction` retries on `40P01`/`40001`. **This relies on `fn` being idempotent** — true today because every write is keyed and conflict-handled (`ON CONFLICT DO NOTHING` / `DO UPDATE`), the same property that makes backfill resumable after a mid-page kill. A future caller doing something unconditional here would double-apply it under contention.
+  - Schema migration takes a session-level advisory lock, keyed on `(constant, schema)`. Two processes starting at once is an ordinary restart, but `runMigrations` reads the applied set and then acts on it, which is not atomic. Measured: five simultaneous unlocked migrators against an empty schema left four of them failing on catalog-level unique violations. The key includes the schema because two archives in different schemas of one database share no tables and should not block each other.
+
+- Because a contention bug cannot appear on PGlite at all, the test suite runs against **both** engines: `pnpm test` on PGlite and `pnpm test:pg` on a real server, the latter adding suites for concurrency, driver type mapping, and the migration lock. Each "does not deadlock" test is paired with a control that does — a concurrency test that never contends passes for the wrong reason.
 - The reconciler and reporting extensions can be written as ordinary SQL rather than as bespoke precomputed tables.
 - **Revisit trigger:** if scope ever grows to many issuances approaching full-ledger volume, this ADR should be reopened — but that would contradict the filtered-archive thesis (ADR-001/007) and is not on the roadmap.
 - The `pglite`-for-tests suggestion in `docs/architecture.md` is now the storage engine itself, not just a test fixture.

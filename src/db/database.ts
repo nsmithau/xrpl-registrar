@@ -25,5 +25,15 @@ export interface Queryable {
 export interface Database extends Queryable {
   /** Run `fn` inside a transaction; commit on resolve, roll back on throw. */
   transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
+  /**
+   * Run `fn` holding an exclusive lock that excludes *other processes* opening
+   * the same archive, used to serialise schema migration.
+   *
+   * Optional, because it is only meaningful for an engine several processes
+   * can attach to at once. The in-process engine omits it — a PGlite database
+   * has exactly one writer by construction — and callers must therefore treat
+   * its absence as "no lock needed" rather than as an error.
+   */
+  withMigrationLock?<T>(fn: () => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }

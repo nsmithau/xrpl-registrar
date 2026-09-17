@@ -1,8 +1,9 @@
 # Deploying xrpl-registrar on Ubuntu
 
 A native systemd deployment: the archive runs as a compiled `node` service under
-a dedicated system user, with the embedded database persisted to disk. Tested on
-Ubuntu 22.04 and 24.04 LTS.
+a dedicated system user, with the embedded database persisted to disk. A
+networked Postgres server can be used instead — see [Configure](#3-configure).
+Tested on Ubuntu 22.04 and 24.04 LTS.
 
 Contents:
 
@@ -21,12 +22,12 @@ Contents:
 
 ## Layout
 
-| Path                                         | Purpose                                                | Owner            |
-| -------------------------------------------- | ------------------------------------------------------ | ---------------- |
-| `/opt/xrpl-registrar`                        | Application code + `dist/` build                       | `xrpl-registrar` |
-| `/var/lib/xrpl-registrar`                    | Embedded database (PGlite) — the only persistent state | `xrpl-registrar` |
-| `/etc/xrpl-registrar/xrpl-registrar.env`     | Configuration (mode `0600`)                            | `xrpl-registrar` |
-| `/etc/systemd/system/xrpl-registrar.service` | systemd unit                                           | `root`           |
+| Path                                         | Purpose                                                                                                                               | Owner            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `/opt/xrpl-registrar`                        | Application code + `dist/` build                                                                                                      | `xrpl-registrar` |
+| `/var/lib/xrpl-registrar`                    | Embedded database (PGlite) — the only persistent state, unless `DATABASE_URL` points at a Postgres server, in which case it is unused | `xrpl-registrar` |
+| `/etc/xrpl-registrar/xrpl-registrar.env`     | Configuration (mode `0600`)                                                                                                           | `xrpl-registrar` |
+| `/etc/systemd/system/xrpl-registrar.service` | systemd unit                                                                                                                          | `root`           |
 
 The service runs as the unprivileged, no-login system user `xrpl-registrar`. The
 systemd unit is sandboxed (`ProtectSystem=strict`, `NoNewPrivileges`, an empty
@@ -85,7 +86,17 @@ sudo nano /etc/xrpl-registrar/xrpl-registrar.env
   JSON-RPC Clio endpoint used to parallelise heavy backfill paging
   ([ADR-016](../docs/adr/adr-016-http-transport-for-backfill-paging.md)).
 
-`DATABASE_DIR` is pre-set to `/var/lib/xrpl-registrar` and should not be changed.
+`DATABASE_DIR` is pre-set to `/var/lib/xrpl-registrar` and should not be changed —
+this is the default, in-process database, and needs nothing else running.
+
+To use a **networked Postgres server** instead, comment `DATABASE_DIR` out and set
+`DATABASE_URL` (optionally `DATABASE_POOL_MAX`, `DATABASE_SSL`). Setting both is a
+startup error: they are different archives, and silently choosing one would look
+like data loss. Nothing else about the deployment changes — same schema, same
+service, and the systemd unit's writable data path simply goes unused. Back up
+whichever one you configured: with `DATABASE_URL` the archive lives on the
+Postgres server, and `/var/lib/xrpl-registrar` will be empty.
+
 Every variable is documented in
 [`xrpl-registrar.env.example`](xrpl-registrar.env.example) and the
 [main README](../README.md#configuration).
@@ -175,14 +186,18 @@ sudo ./deploy/install.sh
 
 ## Backups
 
-All state is the single embedded-database directory. Back it up cold for a
-consistent copy:
+With the default embedded database, all state is the single data directory. Back
+it up cold for a consistent copy:
 
 ```bash
 sudo systemctl stop xrpl-registrar
 sudo tar czf xrpl-registrar-data-$(date +%F).tar.gz -C /var/lib xrpl-registrar
 sudo systemctl start xrpl-registrar
 ```
+
+If you configured `DATABASE_URL` instead, **this backs up nothing** — the archive
+lives on the Postgres server. Back it up there (`pg_dump`, or whatever that server
+already uses); the directory above will be empty.
 
 Everything in the archive is re-derivable from the retained raw blobs, and the
 service self-heals gaps on restart — but a cold copy of `/var/lib/xrpl-registrar`
@@ -200,6 +215,9 @@ sudo rm -rf /opt/xrpl-registrar /etc/xrpl-registrar
 sudo rm -rf /var/lib/xrpl-registrar
 sudo userdel xrpl-registrar
 ```
+
+If you used `DATABASE_URL`, the archive is on the Postgres server and none of the
+above removes it; drop that database separately.
 
 ## Troubleshooting
 

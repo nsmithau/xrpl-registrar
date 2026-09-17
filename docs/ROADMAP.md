@@ -81,18 +81,25 @@ metric on mismatch rather than failing.
 
 ---
 
-## 3. Networked Postgres + multi-process backfill (L)
+## 3. Multi-process backfill — cross-process governor (M)
 
-**Why.** [ADR-010](adr/adr-010-store-the-filtered-archive-in-postgres-not.md) keeps
-storage behind a driver-agnostic interface with PGlite (in-process, single-threaded)
-as the default engine. PGlite serialises all work on one thread — fine for a single
-issuer, the ceiling for many. The concurrency governor is also in-process only.
+_Half of this item has landed. The networked `pg` engine exists; the governor does not._
 
-**What.** A networked `pg`-backed `Database` implementation behind the same interface,
-plus a governor coordinated across workers (parent process or the shared DB) so
-multi-process backfill fan-out does not multiply upstream load. This is the real fix
-for CPU/throughput at scale, of which the ingest-side optimisations already landed
-(decode-once, batched delta inserts) are the in-process half.
+**Done.** A networked `pg`-backed `Database` behind the same interface, selected with
+`DATABASE_URL` ([ADR-010](adr/adr-010-store-the-filtered-archive-in-postgres-not.md)).
+Storage is no longer the constraint: several processes can now attach to one archive,
+schema migration is serialised by an advisory lock, and the concurrent writes this
+makes possible are handled by consistent lock ordering in the batch writers plus
+deadlock retry in the driver. The whole test suite runs against both engines
+(`pnpm test` on PGlite, `pnpm test:pg` on a real server).
+
+**Still open.** The concurrency governor is in-process only, so fanning backfill out
+across processes would multiply upstream load by the number of workers — the one
+thing the governor exists to prevent. That needs a governor coordinated across
+workers (via the parent process or the shared database) before multi-process backfill
+is safe to run. This is the remaining fix for CPU/throughput at scale, of which the
+ingest-side optimisations already landed (decode-once, batched delta inserts) are the
+in-process half.
 
 ---
 
@@ -163,6 +170,19 @@ cap for a from-genesis sweep) so small sweeps do not pay the coordination cost.
   window boundary; the boundary rule (`min ≤ ledger < max`) should still be exact.
 - The per-holder `BackfillWorker` and the gap heal have the same serial-chain shape, but
   their ranges are small; leave them alone unless a heal ever spans a large gap.
+
+---
+
+## Known latent issues
+
+- **`insertDeltasMany` cannot take a duplicate key in one call.** Its
+  `ON CONFLICT (hash, address, issuance_id) DO UPDATE` errors with _"ON CONFLICT DO
+  UPDATE command cannot affect row a second time"_ if the same `(hash, address)` pair
+  appears twice in a single batch for one issuance. No caller is known to produce that
+  today, and it behaves identically on both storage engines, so this is a latent trap
+  rather than a live bug — worth either de-duplicating in the function or asserting
+  the precondition. Noticed while adding the networked Postgres engine (ROADMAP #3);
+  unrelated to it.
 
 ---
 

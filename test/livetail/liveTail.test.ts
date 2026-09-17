@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { LiveTail } from "../../src/livetail/liveTail.js";
 import type {
   LedgerRange,
@@ -44,7 +45,7 @@ describe("LiveTail", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
 
   afterEach(async () => {

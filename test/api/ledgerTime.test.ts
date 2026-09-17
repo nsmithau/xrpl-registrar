@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ClioRequest } from "../../src/clio/types.js";
 import { lazyLedgerTimeResolver } from "../../src/api/ledgerTime.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
 import { fakeReader } from "../discovery/fakes.js";
 
@@ -14,7 +15,7 @@ describe("lazyLedgerTimeResolver", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     const txns = new TransactionRepository(db);
     // Archive spans ledgers 100..200 (only the endpoints need to be present).
     for (const ledger of [100, 200]) {
@@ -68,7 +69,7 @@ describe("lazyLedgerTimeResolver", () => {
   });
 
   it("returns null when the archive holds no transactions", async () => {
-    const empty = await openArchiveDatabase();
+    const empty = await openTestDatabase();
     try {
       const resolve = lazyLedgerTimeResolver(
         fakeReader(() => ({})),

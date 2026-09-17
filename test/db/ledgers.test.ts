@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { LedgerTimeRepository } from "../../src/db/repositories/ledgers.js";
 
 describe("LedgerTimeRepository", () => {
@@ -8,7 +9,7 @@ describe("LedgerTimeRepository", () => {
   let repo: LedgerTimeRepository;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     repo = new LedgerTimeRepository(db);
     await repo.recordMany([
       { ledgerIndex: 100, closeTimeIso: "2026-01-01T00:00:00Z" },

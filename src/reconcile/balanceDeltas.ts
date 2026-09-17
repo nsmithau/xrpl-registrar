@@ -74,6 +74,11 @@ export async function insertDelta(tx: Queryable, issuanceId: number, row: DeltaR
  * `balance_deltas` — instead of two statements per row. On single-threaded
  * PGlite that turns a transaction touching N accounts from 2N serialized
  * round-trips into 2. Idempotent on (hash, address, issuance_id).
+ *
+ * Both statements insert in primary-key order. On the networked Postgres
+ * engine these run as concurrent transactions over overlapping accounts and
+ * hashes, and a consistent lock order is what keeps that from deadlocking —
+ * see the note on `insertTransactionRowsMany`.
  */
 export async function insertDeltasMany(
   tx: Queryable,
@@ -82,15 +87,26 @@ export async function insertDeltasMany(
 ): Promise<void> {
   if (rows.length === 0) return;
 
-  const addresses = [...new Set(rows.map((r) => r.address))];
+  const addresses = [...new Set(rows.map((r) => r.address))].sort();
   await tx.query(
     `INSERT INTO accounts (address) VALUES ${addresses.map((_, i) => `($${i + 1})`).join(", ")}
      ON CONFLICT (address) DO NOTHING`,
     addresses,
   );
 
+  const ordered = [...rows].sort((a, b) =>
+    a.hash < b.hash
+      ? -1
+      : a.hash > b.hash
+        ? 1
+        : a.address < b.address
+          ? -1
+          : a.address > b.address
+            ? 1
+            : 0,
+  );
   const params: unknown[] = [issuanceId];
-  const tuples = rows.map((r) => {
+  const tuples = ordered.map((r) => {
     const h = params.push(r.hash);
     const a = params.push(r.address);
     const d = params.push(r.delta.toString());

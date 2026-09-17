@@ -1,4 +1,5 @@
 import { DEFAULT_GOVERNOR_OPTIONS, type GovernorOptions } from "../clio/governor.js";
+import type { ArchiveDatabaseOptions } from "../db/index.js";
 
 export interface AppConfig {
   readonly clio: {
@@ -19,14 +20,12 @@ export interface AppConfig {
      * and drive needless backoff/retries. */
     readonly requestTimeout: number;
   };
-  readonly db: {
-    /**
-     * Filesystem directory for the in-process (PGlite) database. `undefined`
-     * means an ephemeral in-memory database — fine for a quick start or tests,
-     * but a persistent archive must set `DATABASE_DIR`.
-     */
-    readonly dataDir: string | undefined;
-  };
+  /**
+   * Storage engine and its settings, ready to hand to `openArchiveDatabase`.
+   * Either the in-process PGlite database (the default — see `DATABASE_DIR`)
+   * or a networked Postgres server (`DATABASE_URL`).
+   */
+  readonly db: ArchiveDatabaseOptions;
   readonly admin: {
     /** Admin port (separate from the public read port). */
     readonly port: number;
@@ -39,6 +38,14 @@ export interface AppConfig {
   readonly governor: GovernorOptions;
 }
 
+function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
+  const v = value?.trim().toLowerCase();
+  if (v === undefined || v === "") return fallback;
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  throw new Error(`Expected a boolean (true/false), got: ${value}`);
+}
+
 function intFromEnv(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === "") return fallback;
   // Validate the whole string: Number.parseInt("10abc")→10 and ("3.9")→3 would
@@ -48,6 +55,44 @@ function intFromEnv(value: string | undefined, fallback: number): number {
     throw new Error(`Expected an integer, got: ${value}`);
   }
   return parsed;
+}
+
+/**
+ * Choose the storage engine from the environment.
+ *
+ * `DATABASE_URL` selects networked Postgres; otherwise the in-process PGlite
+ * database is used, persisted at `DATABASE_DIR` (or ephemeral if that is unset
+ * too). PGlite remains the default deliberately — a single-issuer self-hosted
+ * deployment should not need a database server to stand up (ADR-010).
+ *
+ * Setting both is an error rather than a precedence rule. The two point at
+ * different archives, so silently picking one would mean an operator who
+ * added `DATABASE_URL` to an existing PGlite deployment could come back up
+ * against an empty database and read it as data loss.
+ */
+function loadDbConfig(env: NodeJS.ProcessEnv): ArchiveDatabaseOptions {
+  const url = env.DATABASE_URL?.trim() || undefined;
+  const dataDir = env.DATABASE_DIR?.trim() || undefined;
+
+  if (url && dataDir) {
+    throw new Error(
+      "DATABASE_URL and DATABASE_DIR are both set; they select different storage engines. " +
+        "Set DATABASE_URL for a networked Postgres server, or DATABASE_DIR for the in-process database.",
+    );
+  }
+
+  // Spread rather than `dataDir: undefined`: under exactOptionalPropertyTypes
+  // an absent optional property and one explicitly set to undefined differ.
+  if (!url) return { engine: "pglite", ...(dataDir ? { dataDir } : {}) };
+
+  const poolMax = env.DATABASE_POOL_MAX?.trim();
+  return {
+    engine: "postgres",
+    connectionString: url,
+    ssl: boolFromEnv(env.DATABASE_SSL, false),
+    applicationName: "xrpl-registrar",
+    ...(poolMax ? { max: intFromEnv(poolMax, 0) } : {}),
+  };
 }
 
 /**
@@ -72,9 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       connectionTimeout: intFromEnv(env.CLIO_CONNECTION_TIMEOUT_MS, 20_000),
       requestTimeout: intFromEnv(env.CLIO_REQUEST_TIMEOUT_MS, 30_000),
     },
-    db: {
-      dataDir: env.DATABASE_DIR?.trim() || undefined,
-    },
+    db: loadDbConfig(env),
     admin: {
       port: intFromEnv(env.ADMIN_PORT, 51235),
       token: env.ADMIN_TOKEN?.trim() || undefined,

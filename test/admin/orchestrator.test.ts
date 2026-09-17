@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AdminApi } from "../../src/admin/adminApi.js";
 import { ingestIssuance } from "../../src/admin/orchestrator.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import type { ClioRequest } from "../../src/clio/types.js";
 import { decodeMptIssuer } from "../../src/xrpl/mpt.js";
@@ -16,7 +17,7 @@ describe("ingestIssuance", () => {
   let db: Database;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
   });
   afterEach(async () => {
     await db.close();

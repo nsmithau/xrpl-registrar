@@ -107,9 +107,7 @@ const activity = new ActivityRegistry();
 // JSON-RPC when CLIO_HTTP_ENDPOINT is set (parallelises; ADR-016), else the WS
 // client. Both share one governor.
 const { client, pagingClient } = createClioClient(config);
-const db = await openArchiveDatabase(
-  config.db.dataDir !== undefined ? { dataDir: config.db.dataDir } : {},
-);
+const db = await openArchiveDatabase(config.db);
 // Startup guard: confirm the upstream is a full-history Clio. A partial-history
 // xrpld node or the wrong network would make the archive silently incomplete —
 // so surface server_info and warn loudly when it doesn't look like Clio.

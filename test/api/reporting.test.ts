@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ArchiveApi } from "../../src/api/handler.js";
-import { openArchiveDatabase, type Database } from "../../src/db/index.js";
+import type { Database } from "../../src/db/index.js";
+import { openTestDatabase } from "../dbHelpers.js";
 import { AccountRepository } from "../../src/db/repositories/accounts.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
 import { TransactionRepository } from "../../src/db/repositories/transactions.js";
@@ -17,7 +18,7 @@ describe("reporting extensions", () => {
   let issuanceId: number;
 
   beforeEach(async () => {
-    db = await openArchiveDatabase();
+    db = await openTestDatabase();
     api = new ArchiveApi({ db });
     const iss = await new IssuanceRepository(db).create({ kind: "mpt", mptIssuanceId: MPT });
     issuanceId = iss.id;

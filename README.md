@@ -26,7 +26,7 @@ Data from this archive backs regulatory filings, so the design **fails closed**:
 
 ## Quick start
 
-Requires Node 22+, [pnpm](https://pnpm.io/), and a full-history Clio endpoint. Storage is an in-process Postgres ([PGlite](https://pglite.dev/)) — no separate database server or container.
+Requires Node 22+, [pnpm](https://pnpm.io/), and a full-history Clio endpoint. Storage is an in-process Postgres ([PGlite](https://pglite.dev/)) by default — no separate database server or container. A networked Postgres server is supported for larger deployments: set `DATABASE_URL` instead of `DATABASE_DIR` ([ADR-010](docs/adr/adr-010-store-the-filtered-archive-in-postgres-not.md)).
 
 ```bash
 pnpm install
@@ -145,7 +145,10 @@ All configuration is read from the environment. Copy [`.env.example`](.env.examp
 | `CLIO_MAX_RETRIES`           | no       | `5`           | Retries per request on upstream load signals.                                                                                                                                                                                                                                                         |
 | `CLIO_CONNECTION_TIMEOUT_MS` | no       | `20000`       | WebSocket connection timeout.                                                                                                                                                                                                                                                                         |
 | `CLIO_REQUEST_TIMEOUT_MS`    | no       | `30000`       | Per-request timeout. Generous by design: a heavy `account_tx` page can take several seconds.                                                                                                                                                                                                          |
-| `DATABASE_DIR`               | no       | _(in-memory)_ | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this.                                                                                                                                             |
+| `DATABASE_DIR`               | no       | _(in-memory)_ | Filesystem directory for the in-process (PGlite) database. Unset means an ephemeral in-memory DB (data lost on exit); a persistent archive must set this or `DATABASE_URL`.                                                                                                                           |
+| `DATABASE_URL`               | no       | —             | Postgres connection URI (e.g. `postgres://user:pw@host:5432/archive`). Selects a networked Postgres server instead of the in-process engine. Setting this **and** `DATABASE_DIR` is an error: they are different archives, so silently choosing one would look like data loss.                        |
+| `DATABASE_POOL_MAX`          | no       | `10`          | Maximum pooled connections. Only used with `DATABASE_URL`.                                                                                                                                                                                                                                            |
+| `DATABASE_SSL`               | no       | `false`       | Require TLS to the Postgres server. Only used with `DATABASE_URL`.                                                                                                                                                                                                                                    |
 | `ADMIN_TOKEN`                | no       | —             | Bearer token for the admin API + dashboard on a separate port. Unset disables the admin port. Never expose it publicly.                                                                                                                                                                               |
 | `ADMIN_PORT`                 | no       | `51235`       | Port for the authenticated admin API (always bound to loopback).                                                                                                                                                                                                                                      |
 | `EXPLORER_BASE_URL`          | no       | —             | Block-explorer base URL. When set, the dashboard links transaction hashes, ledgers, MPT ids, and IOU tokens to it (e.g. `https://livenet.xrpl.org`).                                                                                                                                                  |
@@ -175,11 +178,30 @@ The installer is idempotent (re-run it to upgrade), builds under a dedicated `xr
 
 ```bash
 pnpm test              # unit tests (offline, in-process Postgres)
+pnpm test:pg           # the same suites against a real Postgres (see below)
 pnpm test:integration  # live smoke test — set CLIO_ENDPOINT
 pnpm typecheck
 pnpm lint
 pnpm build             # emit to dist/
 ```
+
+### Testing both storage engines
+
+`pnpm test` runs everything on in-process PGlite: offline, no container, nothing
+to start. `pnpm test:pg` runs the **same** suites against a real Postgres server,
+plus the ones that only mean something there — concurrent writers, driver type
+mapping, and cross-process migration locking, which skip on PGlite.
+
+```bash
+pnpm pg:up      # postgres:17 on port 55432 (docker-compose.test.yml)
+pnpm test:pg
+pnpm pg:down
+```
+
+Running both is what keeps "storage is engine-agnostic" honest rather than
+aspirational, so CI does the same. The concurrency suites matter most: PGlite
+serialises every statement on one thread, so contention bugs simply cannot
+appear there (see [ADR-010](docs/adr/adr-010-store-the-filtered-archive-in-postgres-not.md)).
 
 **Balance smoke test.** `pnpm verify` samples random holders of an issuance and checks each archive balance against the on-chain balance at a ledger (latest if unset) — a quick data-integrity/health check that exits non-zero on any mismatch. It talks to a **running** server over HTTP (admin API for the holder sample, read API for `archive_balance_at`) plus upstream Clio for the on-chain balance — it does **not** open the database directly (the embedded store is single-writer, so a second opener would abort). Start the server first and set `ADMIN_TOKEN`.
 
@@ -193,7 +215,7 @@ ISSUANCE=1 LEDGER=20000000 pnpm verify                  # as of a past ledger
 
 ## Roadmap
 
-Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. A native Ubuntu deployment path ships in [`deploy/`](deploy/) — a compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an nginx + TLS example, and a runbook. Not yet built: multi-_process_ backfill (which needs a networked Postgres and a Postgres-coordinated governor rather than the in-process one), a durable ingest trigger, periodic external reconciliation against upstream, and the remaining ops surface (a metrics endpoint, a container image). The public read API binds to localhost by default and the admin surface must never be publicly exposed.
+Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. A native Ubuntu deployment path ships in [`deploy/`](deploy/) — a compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an nginx + TLS example, and a runbook. Not yet built: multi-_process_ backfill — networked Postgres now exists (`DATABASE_URL`), but the governor is still in-process, so fanning out across processes would multiply upstream load; that half remains open. Also outstanding: a durable ingest trigger, periodic external reconciliation against upstream, and the remaining ops surface (a metrics endpoint, a container image). The public read API binds to localhost by default and the admin surface must never be publicly exposed.
 
 ## Licence
 

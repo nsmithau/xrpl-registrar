@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { PgliteDatabase } from "../../src/db/pglite.js";
+import type { Database } from "../../src/db/database.js";
 import { runMigrations } from "../../src/db/migrate.js";
+import { openUnmigratedTestDatabase } from "../dbHelpers.js";
 
 describe("runMigrations", () => {
-  let db: PgliteDatabase;
+  let db: Database;
 
   beforeEach(async () => {
-    db = await PgliteDatabase.open(); // in-memory
+    // Deliberately unmigrated: these tests watch the runner do the work.
+    db = await openUnmigratedTestDatabase();
   });
 
   afterEach(async () => {
@@ -27,8 +29,11 @@ describe("runMigrations", () => {
 
   it("creates the perf indexes", async () => {
     await runMigrations(db);
+    // `current_schema()`, not a literal 'public': under Postgres each suite
+    // migrates into its own schema, so a hardcoded 'public' would look at
+    // somebody else's tables — or at nothing at all.
     const { rows } = await db.query<{ indexname: string }>(
-      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'",
+      "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema()",
     );
     const indexes = rows.map((r) => r.indexname);
     for (const expected of [
@@ -44,7 +49,7 @@ describe("runMigrations", () => {
     await runMigrations(db);
     const { rows } = await db.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
-       WHERE table_schema = 'public' ORDER BY table_name`,
+       WHERE table_schema = current_schema() ORDER BY table_name`,
     );
     const tables = rows.map((r) => r.table_name);
     for (const expected of [
