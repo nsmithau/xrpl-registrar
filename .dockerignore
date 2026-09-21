@@ -1,0 +1,22 @@
+# Build context: only what the Dockerfile copies (package manifests, src, tsconfig,
+# LICENSE, README). Everything else would just slow the build or leak into it.
+.git
+.github
+node_modules
+dist
+coverage
+data
+docs
+test
+examples
+postman
+deploy
+.env
+.env.*
+*.log
+probe-results-*.json
+.DS_Store
+Dockerfile
+.dockerignore
+docker-compose*.yml
+compose*.yml

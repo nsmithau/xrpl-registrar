@@ -1,0 +1,68 @@
+# xrpl-registrar + Postgres (ADR-019).
+#
+#   cp deploy/docker/.env.example deploy/docker/.env   # then edit it
+#   docker compose -f deploy/docker/compose.yml up -d --build
+#
+# Compose reads deploy/docker/.env twice: for the ${…} substitutions in this
+# file, and (via env_file) as the registrar container's environment. Keep the
+# repo-root .env for `pnpm serve`; it selects the in-process engine, which the
+# image refuses (STORAGE_ENGINE=postgres is baked in).
+#
+# Exposure: by default both ports are published on the HOST's loopback only —
+# the same posture as the systemd deployment. Set BIND_ADDRESS to a LAN address
+# (or 0.0.0.0) to open them to the network, and put a TLS-terminating proxy in
+# front: the admin port speaks plain HTTP, so without one the admin token
+# crosses the LAN in the clear. Then set ADMIN_SECURE_COOKIE=true.
+#
+# One registrar replica per database: the upstream concurrency governor is
+# in-process, so two replicas would double the load on Clio (ROADMAP #3).
+
+name: xrpl-registrar
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: registrar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/docker/.env}
+      POSTGRES_DB: xrpl_registrar
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Not published to the host: only the registrar talks to it. Back it up with
+    # `docker compose exec postgres pg_dump -U registrar xrpl_registrar`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U registrar -d xrpl_registrar"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  registrar:
+    build:
+      context: ../..
+    image: xrpl-registrar:local
+    restart: unless-stopped
+    # PID 1 signal forwarding, so `docker compose stop` delivers SIGTERM and the
+    # server shuts down cleanly (tail stopped, DB pool drained) within its 4 s
+    # watchdog instead of being killed.
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://registrar:${POSTGRES_PASSWORD}@postgres:5432/xrpl_registrar
+      # The bundled Postgres has no TLS and `postgres` is a non-loopback host, for
+      # which the app would default TLS on. Say so explicitly. For an external,
+      # managed Postgres remove this line (TLS on) and point DATABASE_URL at it.
+      DATABASE_SSL: "false"
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PUBLISH_READ_PORT:-51234}:51234"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PUBLISH_ADMIN_PORT:-51235}:51235"
+
+volumes:
+  pgdata:
