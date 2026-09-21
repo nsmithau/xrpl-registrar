@@ -11,8 +11,9 @@
  * In production this compiles to `dist/server.js` and runs on plain node
  * (`pnpm start`), e.g. under the systemd unit in `deploy/`.
  *
- * Optional: PORT=<port>, HOST=<bind addr> (public API only; admin stays on
- * loopback), DATABASE_DIR=<dir> (persist).
+ * Optional: PORT=<port>, HOST=<bind addr> (public API), ADMIN_HOST=<bind addr>
+ * (admin API + dashboard; loopback by default — ADR-019), DATABASE_DIR=<dir> or
+ * DATABASE_URL=<postgres uri> (persist).
  */
 import {
   ActivityRegistry,
@@ -54,7 +55,8 @@ const PORT = Number(process.env.PORT ?? 51234);
 // Bind address for the PUBLIC read API only. Defaults to loopback: the secure,
 // recommended posture is to bind localhost and front the service with a reverse
 // proxy that terminates TLS (see deploy/). Set HOST=0.0.0.0 to expose it
-// directly (only behind a firewall). The admin port always stays on loopback.
+// directly (only behind a firewall). The admin port has its own bind address,
+// ADMIN_HOST (config.admin.host), loopback by default — ADR-019.
 const HOST = process.env.HOST ?? "127.0.0.1";
 // Safety-net full re-scan interval (0 disables). Streaming discovery is primary;
 // this only backstops holders missed during a tail gap. Default 1 hour.
@@ -190,7 +192,27 @@ const api = new ArchiveApi({
   // close times — no eager per-ledger capture at registration.
   resolveLedgerTime: lazyLedgerTimeResolver(client, db),
 });
-const server = new ArchiveServer({ api, port: PORT, host: HOST, logger: log });
+const server = new ArchiveServer({
+  api,
+  port: PORT,
+  host: HOST,
+  logger: log,
+  // GET /healthz — container HEALTHCHECK / proxy probe. Up + database answering
+  // is "ok"; the upstream Clio link is reported but does not gate it, because an
+  // upstream outage must not take the (locally served) archive down with it.
+  health: async () => {
+    const { rows } = await db.query<{ hi: number | string | null }>(
+      "SELECT max(ledger_index) AS hi FROM ledgers",
+    );
+    return {
+      ok: true,
+      details: {
+        engine: config.db.engine,
+        latest_ledger: rows[0]?.hi != null ? Number(rows[0]!.hi) : null,
+      },
+    };
+  },
+});
 const bound = await server.start();
 
 // Forward-declared: the streaming-discovery closures below reference it before
@@ -461,7 +483,8 @@ if (config.admin.token) {
     api: new AdminApi(db, activity, (ledgers) => ensureLedgerCloseTimes(client, db, ledgers)),
     token: config.admin.token,
     port: config.admin.port,
-    host: "127.0.0.1",
+    host: config.admin.host,
+    secureCookie: config.admin.secureCookie,
     ...(config.admin.explorerBaseUrl ? { explorerBaseUrl: config.admin.explorerBaseUrl } : {}),
     logger: log,
     onRegistered: (issuance) => {
@@ -529,8 +552,19 @@ if (config.admin.token) {
     },
   });
   const adminBound = await adminServer.start();
-  console.log(`  Admin API    : http://127.0.0.1:${adminBound}/admin/issuances (Bearer token)`);
-  console.log(`  Dashboard    : http://127.0.0.1:${adminBound}/  (read-only; paste the token)`);
+  const adminHost = config.admin.host;
+  console.log(`  Admin API    : http://${adminHost}:${adminBound}/admin/issuances (Bearer token)`);
+  console.log(`  Dashboard    : http://${adminHost}:${adminBound}/  (read-only; paste the token)`);
+  if (!["127.0.0.1", "localhost", "::1"].includes(adminHost)) {
+    // Not loopback: the token and session cookie travel over the network, and
+    // the admin port speaks plain HTTP. Disclose rather than refuse (ADR-019) —
+    // the operator's TLS proxy is expected in front, with the Secure cookie on.
+    console.warn(
+      `  ⚠  Admin port is bound to ${adminHost}, not loopback. It speaks plain HTTP: put a\n` +
+        `     TLS-terminating proxy in front and set ADMIN_SECURE_COOKIE=true` +
+        (config.admin.secureCookie ? "." : " (currently false)."),
+    );
+  }
 } else {
   console.log(`  Admin API    : disabled (set ADMIN_TOKEN to enable)`);
 }

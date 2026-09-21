@@ -5,7 +5,7 @@ import { Client } from "xrpl";
 import { ArchiveApi } from "../../src/api/handler.js";
 import type { Forwarder, ForwardResult } from "../../src/api/forwarder.js";
 import type { ApiRequest } from "../../src/api/types.js";
-import { ArchiveServer } from "../../src/server/server.js";
+import { ArchiveServer, type HealthReport } from "../../src/server/server.js";
 import type { Database } from "../../src/db/index.js";
 import { openTestDatabase } from "../dbHelpers.js";
 import { IssuanceRepository } from "../../src/db/repositories/issuances.js";
@@ -57,6 +57,8 @@ describe("ArchiveServer", () => {
   let db: Database;
   let server: ArchiveServer;
   let port: number;
+  // Mutable so the /healthz tests can flip the probe between healthy and not.
+  let health: HealthReport = { ok: true, details: { engine: "test", latest_ledger: 200 } };
 
   beforeAll(async () => {
     db = await openTestDatabase();
@@ -86,13 +88,36 @@ describe("ArchiveServer", () => {
     );
 
     const api = new ArchiveApi({ db, forwarder: new FakeForwarder() });
-    server = new ArchiveServer({ api, port: 0 });
+    server = new ArchiveServer({ api, port: 0, health: () => Promise.resolve(health) });
     port = await server.start();
   });
 
   afterAll(async () => {
     await server.stop();
     await db.close();
+  });
+
+  it("answers GET /healthz with 200 and the probe's details while healthy", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({ status: "ok", engine: "test", latest_ledger: 200 });
+  });
+
+  it("answers GET /healthz with 503 when the probe reports unavailable or throws", async () => {
+    health = { ok: false, details: { engine: "test", error: "db unreachable" } };
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ status: "unavailable", error: "db unreachable" });
+    } finally {
+      health = { ok: true, details: { engine: "test", latest_ledger: 200 } };
+    }
+  });
+
+  it("still rejects other GETs with 405 (the JSON-RPC surface is POST-only)", async () => {
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(405);
+    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(405);
   });
 
   it("serves account_tx over HTTP JSON-RPC", async () => {

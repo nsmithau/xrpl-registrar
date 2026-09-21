@@ -8,11 +8,24 @@ import { nullLogger, type Logger } from "../logging/logger.js";
 import type { ArchiveApi } from "../api/handler.js";
 import type { ApiRequest, ApiResponse } from "../api/types.js";
 
+/** Result of the `GET /healthz` probe. */
+export interface HealthReport {
+  /** True when the service can serve: it is up and its database answers. */
+  readonly ok: boolean;
+  /** Free-form diagnostics echoed in the body (latest ledger, engine, …). */
+  readonly details?: Record<string, unknown>;
+}
+
 export interface ArchiveServerOptions {
   readonly api: ArchiveApi;
   readonly port?: number;
   readonly host?: string;
   readonly logger?: Logger;
+  /** Answers `GET /healthz` — for container `HEALTHCHECK`s and the operator's
+   * load balancer / proxy probes. Deliberately independent of the upstream
+   * Clio connection: an upstream outage must not mark the archive itself down
+   * (reads keep being served from local data). Unset: `/healthz` is 404. */
+  readonly health?: () => Promise<HealthReport>;
 }
 
 function statusOf(res: ApiResponse): string {
@@ -59,6 +72,7 @@ export class ArchiveServer {
   readonly #port: number;
   readonly #host: string;
   readonly #logger: Logger;
+  readonly #health: (() => Promise<HealthReport>) | undefined;
   readonly #http: Server;
   readonly #wss: WebSocketServer;
 
@@ -67,6 +81,7 @@ export class ArchiveServer {
     this.#port = options.port ?? 51234;
     this.#host = options.host ?? "127.0.0.1";
     this.#logger = options.logger ?? nullLogger;
+    this.#health = options.health;
     this.#http = createServer((req, res) => void this.#handleHttp(req, res));
     this.#wss = new WebSocketServer({ server: this.#http });
     this.#wss.on("connection", (socket) => this.#handleSocket(socket));
@@ -132,6 +147,9 @@ export class ArchiveServer {
   }
 
   async #handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method === "GET" && this.#health && req.url?.split("?")[0] === "/healthz") {
+      return this.#handleHealth(res);
+    }
     if (req.method !== "POST") {
       res.writeHead(405, { "content-type": "application/json" });
       res.end(jsonSorted({ result: { status: "error", error: "methodNotAllowed" } }));
@@ -167,6 +185,21 @@ export class ArchiveServer {
       res.writeHead(400, { "content-type": "application/json" });
       res.end(jsonSorted({ result: { status: "error", error: "badRequest" } }));
     }
+  }
+
+  async #handleHealth(res: ServerResponse): Promise<void> {
+    let report: HealthReport;
+    try {
+      report = await this.#health!();
+    } catch (err) {
+      this.#logger.error("health probe failed", { error: String(err) });
+      report = { ok: false, details: { error: "probe failed" } };
+    }
+    res.writeHead(report.ok ? 200 : 503, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    });
+    res.end(jsonSorted({ status: report.ok ? "ok" : "unavailable", ...(report.details ?? {}) }));
   }
 }
 

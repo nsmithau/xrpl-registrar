@@ -44,6 +44,25 @@ describe("loadConfig", () => {
     ).toThrow(/Expected an integer/);
   });
 
+  describe("admin bind address and cookie", () => {
+    const base = { CLIO_ENDPOINT: "wss://clio.example" };
+
+    it("binds the admin port to loopback with a plain cookie by default", () => {
+      expect(loadConfig(base).admin).toMatchObject({ host: "127.0.0.1", secureCookie: false });
+    });
+
+    it("reads ADMIN_HOST and ADMIN_SECURE_COOKIE for a container / proxied deployment", () => {
+      const cfg = loadConfig({ ...base, ADMIN_HOST: "0.0.0.0", ADMIN_SECURE_COOKIE: "true" });
+      expect(cfg.admin).toMatchObject({ host: "0.0.0.0", secureCookie: true });
+    });
+
+    it("rejects a malformed ADMIN_SECURE_COOKIE rather than treating it as false", () => {
+      expect(() => loadConfig({ ...base, ADMIN_SECURE_COOKIE: "yes please" })).toThrow(
+        /Expected a boolean/,
+      );
+    });
+  });
+
   describe("storage engine selection", () => {
     const base = { CLIO_ENDPOINT: "wss://clio.example" };
 
@@ -120,6 +139,47 @@ describe("loadConfig", () => {
       expect(() =>
         loadConfig({ ...base, DATABASE_URL: "postgres://host/archive", DATABASE_SSL: "maybe" }),
       ).toThrow(/Expected a boolean/);
+    });
+
+    // The container image pins STORAGE_ENGINE=postgres: its filesystem is
+    // ephemeral, so silently falling back to in-process PGlite would be an
+    // archive that evaporates on restart.
+    describe("STORAGE_ENGINE pin", () => {
+      it("accepts postgres when DATABASE_URL is set", () => {
+        const db = loadConfig({
+          ...base,
+          STORAGE_ENGINE: "postgres",
+          DATABASE_URL: "postgres://host/archive",
+        }).db;
+        expect(db.engine).toBe("postgres");
+      });
+
+      it("fails closed when postgres is pinned but DATABASE_URL is missing", () => {
+        expect(() => loadConfig({ ...base, STORAGE_ENGINE: "postgres" })).toThrow(
+          /STORAGE_ENGINE=postgres but DATABASE_URL is unset/,
+        );
+        // A DATABASE_DIR does not satisfy a postgres pin either.
+        expect(() =>
+          loadConfig({ ...base, STORAGE_ENGINE: "postgres", DATABASE_DIR: "./data" }),
+        ).toThrow(/STORAGE_ENGINE=postgres but DATABASE_URL is unset/);
+      });
+
+      it("accepts pglite with or without DATABASE_DIR, but not with DATABASE_URL", () => {
+        expect(loadConfig({ ...base, STORAGE_ENGINE: "pglite" }).db).toEqual({ engine: "pglite" });
+        expect(loadConfig({ ...base, STORAGE_ENGINE: "PGlite", DATABASE_DIR: "./d" }).db).toEqual({
+          engine: "pglite",
+          dataDir: "./d",
+        });
+        expect(() =>
+          loadConfig({ ...base, STORAGE_ENGINE: "pglite", DATABASE_URL: "postgres://host/a" }),
+        ).toThrow(/STORAGE_ENGINE=pglite but DATABASE_URL is set/);
+      });
+
+      it("rejects an unknown engine name", () => {
+        expect(() => loadConfig({ ...base, STORAGE_ENGINE: "sqlite" })).toThrow(
+          /STORAGE_ENGINE must be 'postgres' or 'pglite'/,
+        );
+      });
     });
   });
 });

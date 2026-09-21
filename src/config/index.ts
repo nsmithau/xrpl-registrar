@@ -29,6 +29,14 @@ export interface AppConfig {
   readonly admin: {
     /** Admin port (separate from the public read port). */
     readonly port: number;
+    /** Bind address for the admin port. Loopback by default; a container or a
+     * LAN deployment behind the operator's own TLS proxy sets `ADMIN_HOST`
+     * (ADR-019). The admin port speaks plain HTTP, so anything but loopback
+     * expects a TLS-terminating proxy in front. */
+    readonly host: string;
+    /** Mark the dashboard session cookie `Secure`. Set `ADMIN_SECURE_COOKIE=true`
+     * once the dashboard is served over HTTPS (by that proxy). */
+    readonly secureCookie: boolean;
     /** Bearer token required by the admin API. Admin is disabled if unset. */
     readonly token: string | undefined;
     /** Base URL of a block explorer (e.g. `https://testnet.xrpl.org`). When set,
@@ -121,6 +129,25 @@ function loadDbConfig(env: NodeJS.ProcessEnv): ArchiveDatabaseOptions {
     );
   }
 
+  // Optional pin. A deployment that must never fall back to the in-process
+  // engine — the container image, whose filesystem is ephemeral — declares the
+  // engine it expects, so a missing DATABASE_URL is a startup error rather than
+  // an in-memory archive that evaporates on restart.
+  const pinned = env.STORAGE_ENGINE?.trim().toLowerCase() || undefined;
+  if (pinned !== undefined && pinned !== "postgres" && pinned !== "pglite") {
+    throw new Error(`STORAGE_ENGINE must be 'postgres' or 'pglite', got: ${env.STORAGE_ENGINE}`);
+  }
+  if (pinned === "postgres" && !url) {
+    throw new Error(
+      "STORAGE_ENGINE=postgres but DATABASE_URL is unset; this deployment requires a networked Postgres server.",
+    );
+  }
+  if (pinned === "pglite" && url) {
+    throw new Error(
+      "STORAGE_ENGINE=pglite but DATABASE_URL is set; unset one of them (they select different storage engines).",
+    );
+  }
+
   // Spread rather than `dataDir: undefined`: under exactOptionalPropertyTypes
   // an absent optional property and one explicitly set to undefined differ.
   if (!url) return { engine: "pglite", ...(dataDir ? { dataDir } : {}) };
@@ -161,6 +188,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     db: loadDbConfig(env),
     admin: {
       port: intFromEnv(env.ADMIN_PORT, 51235),
+      host: env.ADMIN_HOST?.trim() || "127.0.0.1",
+      secureCookie: boolFromEnv(env.ADMIN_SECURE_COOKIE, false),
       token: env.ADMIN_TOKEN?.trim() || undefined,
       explorerBaseUrl: env.EXPLORER_BASE_URL?.trim().replace(/\/+$/, "") || undefined,
     },
