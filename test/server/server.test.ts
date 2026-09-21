@@ -57,7 +57,7 @@ describe("ArchiveServer", () => {
   let db: Database;
   let server: ArchiveServer;
   let port: number;
-  // Mutable so the /healthz tests can flip the probe between healthy and not.
+  // Mutable so the /health tests can flip the probe between healthy and not.
   let health: HealthReport = { ok: true, details: { engine: "test", latest_ledger: 200 } };
 
   beforeAll(async () => {
@@ -97,17 +97,17 @@ describe("ArchiveServer", () => {
     await db.close();
   });
 
-  it("answers GET /healthz with 200 and the probe's details while healthy", async () => {
-    const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+  it("answers GET /health with 200 and the probe's details while healthy", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await res.json()).toEqual({ status: "ok", engine: "test", latest_ledger: 200 });
   });
 
-  it("answers GET /healthz with 503 when the probe reports unavailable or throws", async () => {
+  it("answers GET /health with 503 when the probe reports unavailable or throws", async () => {
     health = { ok: false, details: { engine: "test", error: "db unreachable" } };
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/healthz`);
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
       expect(res.status).toBe(503);
       expect(await res.json()).toMatchObject({ status: "unavailable", error: "db unreachable" });
     } finally {
@@ -117,7 +117,7 @@ describe("ArchiveServer", () => {
 
   it("still rejects other GETs with 405 (the JSON-RPC surface is POST-only)", async () => {
     expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(405);
-    expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(405);
+    expect((await fetch(`http://127.0.0.1:${port}/status`)).status).toBe(405);
   });
 
   it("serves account_tx over HTTP JSON-RPC", async () => {

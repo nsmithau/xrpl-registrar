@@ -197,7 +197,7 @@ const server = new ArchiveServer({
   port: PORT,
   host: HOST,
   logger: log,
-  // GET /healthz — container HEALTHCHECK / proxy probe. Up + database answering
+  // GET /health — container HEALTHCHECK / proxy probe. Up + database answering
   // is "ok"; the upstream Clio link is reported but does not gate it, because an
   // upstream outage must not take the (locally served) archive down with it.
   health: async () => {
