@@ -1,6 +1,6 @@
 # ADR-009: Operator UI is read-only and admin-port bound
 
-**Date:** 2026-08-12
+**Date:** 2026-08-12. **Amended** by [ADR-019](adr-019-container-image-and-lan-exposure.md): the admin surface is bound to loopback _by default_ rather than always — `ADMIN_HOST` may open it on a LAN behind the operator's TLS proxy, and the container image binds it on all container interfaces with exposure decided at the host port mapping.
 
 ## Context
 

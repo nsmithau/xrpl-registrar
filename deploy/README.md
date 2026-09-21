@@ -5,6 +5,9 @@ a dedicated system user, with the embedded database persisted to disk. A
 networked Postgres server can be used instead — see [Configure](#3-configure).
 Tested on Ubuntu 22.04 and 24.04 LTS.
 
+Prefer containers? A Postgres-only image and compose stack live in
+[`docker/`](docker/README.md).
+
 Contents:
 
 - [Layout](#layout)
@@ -14,7 +17,7 @@ Contents:
 - [4. Start and verify](#4-start-and-verify)
 - [5. TLS reverse proxy (public read API)](#5-tls-reverse-proxy-public-read-api)
 - [6. Firewall](#6-firewall)
-- [7. Admin dashboard over SSH](#7-admin-dashboard-over-ssh)
+- [7. Admin dashboard: SSH tunnel, or LAN behind your proxy](#7-admin-dashboard-ssh-tunnel-or-lan-behind-your-proxy)
 - [Upgrades](#upgrades)
 - [Backups](#backups)
 - [Uninstall](#uninstall)
@@ -159,13 +162,13 @@ sudo ufw allow 'Nginx Full'    # 80 (redirect) + 443
 sudo ufw enable
 ```
 
-Do **not** open `51234` or `51235`. The admin port (`51235`) must never be
-reachable from the network.
+Do **not** open `51234` or `51235` to the internet. If you expose the admin port
+on a LAN (next section), open `51235` to your proxy's address only.
 
-## 7. Admin dashboard over SSH
+## 7. Admin dashboard: SSH tunnel, or LAN behind your proxy
 
-The admin API and dashboard are bound to `127.0.0.1:51235` and cannot be proxied
-publicly. Reach them by forwarding the port over SSH from your workstation:
+By default the admin API and dashboard are bound to `127.0.0.1:51235`. Reach
+them by forwarding the port over SSH from your workstation:
 
 ```bash
 ssh -N -L 51235:127.0.0.1:51235 you@your-server
@@ -174,6 +177,17 @@ ssh -N -L 51235:127.0.0.1:51235 you@your-server
 Then open <http://127.0.0.1:51235/> locally and paste your `ADMIN_TOKEN` to sign
 in. Register issuances from there (or via the Admin API with a bearer token — see
 the [main README](../README.md#registering-issuances-admin-api)).
+
+**On a LAN, without SSH.** Set `ADMIN_HOST` in the env file to the server's LAN
+address (or `0.0.0.0`) and restart. The admin port speaks **plain HTTP** — the
+bearer token and the session cookie travel in every request — so put a
+TLS-terminating reverse proxy in front of it (your own, or the optional `admin.`
+server block in [`nginx/xrpl-registrar.conf.example`](nginx/xrpl-registrar.conf.example)),
+restrict who can reach it there (IP allow-list, VPN), and set
+`ADMIN_SECURE_COOKIE=true` so the dashboard cookie is only ever sent over HTTPS.
+The service prints a warning at startup whenever the admin bind is not loopback,
+naming exactly this. Never expose the admin port to the internet
+([ADR-019](../docs/adr/adr-019-container-image-and-lan-exposure.md)).
 
 ## Upgrades
 

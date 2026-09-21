@@ -129,15 +129,19 @@ Overlaps with item 2; could share machinery.
 
 ## 6. Ops hardening (M)
 
-**Why.** A native Ubuntu deployment path now ships in [`deploy/`](../deploy/) — a
-compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an
-nginx + TLS example, and a runbook covering the exposure model, backups, upgrades and
-uninstall — and `HOST` makes the public bind address explicit. What is still missing
-is observability and a non-Ubuntu path.
+**Why.** Two deployment paths now ship in [`deploy/`](../deploy/): the native Ubuntu
+systemd install (installer, hardened unit, nginx + TLS example, runbook) and a
+Postgres-only container image with a compose stack
+([ADR-019](adr/adr-019-container-image-and-lan-exposure.md)); `HOST` / `ADMIN_HOST`
+make both bind addresses explicit, and `GET /healthz` gives probes something to hit.
+What is still missing is observability and a published image.
 
-**What.** A metrics endpoint, a container image, and the upstream-replacement
-procedure per [ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md).
-Prerequisite for anyone running this against a real filing deadline.
+**What.** A metrics endpoint (Prometheus text on the admin port, same counters the
+dashboard reads — ADR-009), publishing the image to a registry on tags (multi-arch:
+the CI builder is amd64, colima on Apple silicon is arm64), and the
+upstream-replacement procedure per
+[ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md). Prerequisite for anyone
+running this against a real filing deadline.
 
 ---
 

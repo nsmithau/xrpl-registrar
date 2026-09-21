@@ -4,7 +4,7 @@ Architecture decisions taken during design, August 2026. Each records the option
 
 **Read this before revisiting a design choice.** Several of these look like obvious simplifications from inside the code. They were considered and rejected for reasons that are invisible at the call site. Disagreeing is legitimate — superseding an ADR explicitly is the way to do it.
 
-Deciders throughout: nsmithau. Status of all: **Accepted** unless noted in the table — ADR-003 carries a mandatory review point (replace the public upstream before any real filing), ADR-007's default ingest path is superseded by ADR-013, and ADR-011 was amended on 2026-08-19 (Apache-2.0 → ISC).
+Deciders throughout: nsmithau. Status of all: **Accepted** unless noted in the table — ADR-003 carries a mandatory review point (replace the public upstream before any real filing), ADR-007's default ingest path is superseded by ADR-013, ADR-009 is amended by ADR-019 (admin surface loopback by default, not always), and ADR-011 was amended on 2026-08-19 (Apache-2.0 → ISC).
 
 ---
 
@@ -28,3 +28,4 @@ Deciders throughout: nsmithau. Status of all: **Accepted** unless noted in the t
 | [ADR-016](adr-016-http-transport-for-backfill-paging.md)                    | Page `account_tx` over HTTP JSON-RPC for backfill; WS only for the tail           |
 | [ADR-017](adr-017-gateway-balances-for-iou-issuers.md)                      | Serve `gateway_balances` for IOU issuers — scoped and fail-closed                 |
 | [ADR-018](adr-018-delete-issuance.md)                                       | Deletable issuances — a bounded exception to append-only                          |
+| [ADR-019](adr-019-container-image-and-lan-exposure.md)                      | Container image is Postgres-only; exposure decided at the host, not in the app    |

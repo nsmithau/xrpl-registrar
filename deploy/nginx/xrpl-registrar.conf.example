@@ -2,9 +2,10 @@
 #
 # The service binds the read API to 127.0.0.1:51234 (see HOST/PORT in the env
 # file). This front-ends it with TLS so xrpl.js / JSON-RPC clients connect over
-# wss:// and https://. It deliberately does NOT proxy the admin port (51235):
-# the admin API and dashboard must stay on loopback and be reached via an SSH
-# tunnel (ADR-009).
+# wss:// and https://. By default it does NOT proxy the admin port (51235): the
+# admin API and dashboard stay on loopback and are reached via an SSH tunnel
+# (ADR-009). For a LAN deployment that wants the dashboard without SSH, see the
+# optional admin server block at the end (ADR-019).
 #
 # Install:
 #   sudo cp deploy/nginx/xrpl-registrar.conf.example \
@@ -61,3 +62,47 @@ server {
         proxy_send_timeout 3600s;
     }
 }
+
+# ---------------------------------------------------------------------------
+# OPTIONAL: admin API + dashboard on a LAN, behind TLS (ADR-019).
+#
+# Only if you have set ADMIN_HOST in the env file (default 127.0.0.1) and the
+# proxy runs on the same host — otherwise leave this out and use an SSH tunnel.
+# The admin port speaks plain HTTP and carries the bearer token, so it must only
+# ever be reached through this TLS server block, and only from where you say.
+# Set ADMIN_SECURE_COOKIE=true in the env file once this is in place. Use a
+# hostname distinct from the public read API so the two origins never share
+# cookies. Never expose it to the internet.
+#
+# server {
+#     listen 443 ssl;
+#     listen [::]:443 ssl;
+#     http2 on;
+#     server_name admin.archive.example.com;   # <-- change me
+#
+#     ssl_certificate     /etc/ssl/private/admin.archive.example.com.crt;  # <-- your CA
+#     ssl_certificate_key /etc/ssl/private/admin.archive.example.com.key;  # <-- your CA
+#     ssl_protocols       TLSv1.2 TLSv1.3;
+#
+#     # Who may reach the dashboard at all.
+#     allow 10.0.0.0/8;       # <-- your operator / VPN range
+#     deny  all;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:51235;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#     }
+#
+#     # Slow down token guessing at the edge.
+#     location = /admin/login {
+#         limit_req zone=admin_login burst=5 nodelay;
+#         proxy_pass http://127.0.0.1:51235;
+#         proxy_set_header Host $host;
+#     }
+# }
+# # In the http{} context (e.g. /etc/nginx/conf.d/admin-ratelimit.conf):
+# # limit_req_zone $binary_remote_addr zone=admin_login:1m rate=10r/m;

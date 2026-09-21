@@ -78,3 +78,37 @@ jobs:
       - run: pnpm test:pg
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/xrpl_registrar_test
+
+  # Build the container image and check the one property that makes it safe to
+  # run: without DATABASE_URL it must refuse to start (STORAGE_ENGINE=postgres is
+  # baked in — ADR-019) rather than fall back to an in-memory archive. The full
+  # stack smoke (compose up, register, verify) needs a live full-history Clio and
+  # stays a manual step in deploy/docker/README.md.
+  docker:
+    name: container image builds and fails closed without a database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - run: docker build -t xrpl-registrar:ci .
+
+      - name: compose file is valid
+        run: |
+          cp deploy/docker/.env.example deploy/docker/.env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci/; s/^ADMIN_TOKEN=.*/ADMIN_TOKEN=ci/' deploy/docker/.env
+          docker compose -f deploy/docker/compose.yml config --quiet
+
+      - name: refuses to start without DATABASE_URL
+        run: |
+          set +e
+          out=$(docker run --rm -e CLIO_ENDPOINT=wss://clio.invalid xrpl-registrar:ci 2>&1)
+          code=$?
+          set -e
+          echo "$out" | tail -5
+          test "$code" -ne 0
+          echo "$out" | grep -q "STORAGE_ENGINE=postgres but DATABASE_URL is unset"
+
+      - name: image metadata
+        run: |
+          docker image inspect xrpl-registrar:ci --format 'size={{.Size}} user={{.Config.User}} healthcheck={{if .Config.Healthcheck}}yes{{else}}no{{end}}'
+          test "$(docker image inspect xrpl-registrar:ci --format '{{.Config.User}}')" = node

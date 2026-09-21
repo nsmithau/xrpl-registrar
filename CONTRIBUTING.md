@@ -53,6 +53,26 @@ shell profile silently overrides the active `docker context`:
 export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
 ```
 
+### Container image
+
+`Dockerfile` (repo root) and `deploy/docker/compose.yml` build and run the
+Postgres-only image. To check a change that touches packaging, startup, or
+anything the image bakes in (`STORAGE_ENGINE`, bind addresses, the health probe):
+
+```bash
+cp deploy/docker/.env.example deploy/docker/.env   # testnet endpoints + throwaway secrets
+docker compose -f deploy/docker/compose.yml up -d --build --wait
+curl -s http://127.0.0.1:51234/healthz
+docker compose -f deploy/docker/compose.yml down -v
+```
+
+CI builds the image and checks that it refuses to start without `DATABASE_URL`;
+the full stack run above needs a live Clio, so it stays manual. The Dockerfile
+is deliberately plain-`docker build` compatible (no BuildKit-only features) so it
+works with any builder, including a colima host without the buildx plugin. If
+your machine has the standalone `docker-compose` binary rather than the
+`docker compose` plugin, the commands are the same with a hyphen.
+
 ### Live smoke test
 
 The live smoke test needs a full-history Clio endpoint:

@@ -177,6 +177,18 @@ sudo systemctl start xrpl-registrar
 
 The installer is idempotent (re-run it to upgrade), builds under a dedicated `xrpl-registrar` system user, stores data in `/var/lib/xrpl-registrar`, and installs a hardened systemd unit. The read API stays on loopback by default; front it with the supplied nginx + TLS example, and reach the admin dashboard over an SSH tunnel. Full walkthrough — prerequisites, TLS, firewall, backups, upgrades, uninstall — in **[`deploy/README.md`](deploy/README.md)**.
 
+## Running with Docker
+
+A container image and a compose stack ship in the repo; the image is **Postgres-only** — it pins `STORAGE_ENGINE=postgres`, so a container without `DATABASE_URL` refuses to start rather than falling back to an in-memory archive ([ADR-019](docs/adr/adr-019-container-image-and-lan-exposure.md)). The compose stack runs the registrar alongside `postgres:17` with a named volume.
+
+```bash
+cp deploy/docker/.env.example deploy/docker/.env    # set CLIO_ENDPOINT, ADMIN_TOKEN, POSTGRES_PASSWORD
+docker compose -f deploy/docker/compose.yml up -d --build
+curl -s http://127.0.0.1:51234/healthz              # {"engine":"postgres",...,"status":"ok"}
+```
+
+Both ports are published on the **host's loopback** by default. Set `BIND_ADDRESS` in the env file to a LAN address to open them — the admin port speaks plain HTTP, so put a TLS-terminating proxy in front and set `ADMIN_SECURE_COOKIE=true`. Full runbook (exposure model, backups with `pg_dump`, upgrades, colima notes) in **[`deploy/docker/README.md`](deploy/docker/README.md)**.
+
 ## Development
 
 ```bash
@@ -218,7 +230,7 @@ ISSUANCE=1 LEDGER=20000000 pnpm verify                  # as of a past ledger
 
 ## Roadmap
 
-Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. A native Ubuntu deployment path ships in [`deploy/`](deploy/) — a compiled `node` entrypoint, an idempotent installer, a hardened systemd unit, an nginx + TLS example, and a runbook. Not yet built: multi-_process_ backfill — networked Postgres now exists (`DATABASE_URL`), but the governor is still in-process, so fanning out across processes would multiply upstream load; that half remains open. Also outstanding: a durable ingest trigger, periodic external reconciliation against upstream, and the remaining ops surface (a metrics endpoint, a container image). The public read API binds to localhost by default and the admin surface must never be publicly exposed.
+Backfill is a single `account_tx` sweep on the **issuer**: because every in-scope transaction — including holder-to-holder transfers — appears in the issuer's `account_tx`, one paginated, resumable sweep discovers every holder and backfills their history at once, so a token with many holders (or several issuances sharing an issuer) costs one sweep, not one per holder. It runs through the single global governor so upstream load stays under the cap. (The tail backfills a _newly_-discovered holder with a per-holder sweep — rare and idempotent.) The live tail keeps everything current incrementally — deriving balance deltas as transactions land and discovering new holders from the stream (via the issuer subscription), so reporting stays accurate without a periodic full re-derivation or re-scan (`REDISCOVERY_INTERVAL_MS` is now a safety-net backstop). The operator dashboard shows live backfill/discovery activity indicators next to the ledger counter. Two deployment paths ship in [`deploy/`](deploy/): a native Ubuntu systemd install (idempotent installer, hardened unit, nginx + TLS example, runbook) and a Postgres-only container image with a compose stack. Not yet built: multi-_process_ backfill — networked Postgres now exists (`DATABASE_URL`), but the governor is still in-process, so fanning out across processes would multiply upstream load; that half remains open. Also outstanding: a durable ingest trigger, periodic external reconciliation against upstream, and a metrics endpoint. The public read API and the admin surface bind to localhost by default; opening the admin surface on a LAN is an explicit operator choice behind a TLS proxy ([ADR-019](docs/adr/adr-019-container-image-and-lan-exposure.md)) and it must never be publicly exposed.
 
 ## Licence
 
