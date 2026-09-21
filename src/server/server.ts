@@ -8,7 +8,7 @@ import { nullLogger, type Logger } from "../logging/logger.js";
 import type { ArchiveApi } from "../api/handler.js";
 import type { ApiRequest, ApiResponse } from "../api/types.js";
 
-/** Result of the `GET /health` probe. */
+/** Result of the `GET /healthz` probe. */
 export interface HealthReport {
   /** True when the service can serve: it is up and its database answers. */
   readonly ok: boolean;
@@ -21,10 +21,10 @@ export interface ArchiveServerOptions {
   readonly port?: number;
   readonly host?: string;
   readonly logger?: Logger;
-  /** Answers `GET /health` — for container `HEALTHCHECK`s and the operator's
+  /** Answers `GET /healthz` — for container `HEALTHCHECK`s and the operator's
    * load balancer / proxy probes. Deliberately independent of the upstream
    * Clio connection: an upstream outage must not mark the archive itself down
-   * (reads keep being served from local data). Unset: `/health` gets the usual 405. */
+   * (reads keep being served from local data). Unset: `/healthz` gets the usual 405. */
   readonly health?: () => Promise<HealthReport>;
 }
 
@@ -147,7 +147,7 @@ export class ArchiveServer {
   }
 
   async #handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method === "GET" && this.#health && req.url?.split("?")[0] === "/health") {
+    if (req.method === "GET" && this.#health && req.url?.split("?")[0] === "/healthz") {
       return this.#handleHealth(res);
     }
     if (req.method !== "POST") {
