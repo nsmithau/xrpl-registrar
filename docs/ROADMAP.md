@@ -134,12 +134,12 @@ systemd install (installer, hardened unit, nginx + TLS example, runbook) and a
 Postgres-only container image with a compose stack
 ([ADR-019](adr/adr-019-container-image-and-lan-exposure.md)); `HOST` / `ADMIN_HOST`
 make both bind addresses explicit, and `GET /healthz` gives probes something to hit.
-What is still missing is observability and a published image.
+What is still missing is observability. (The image is built from source by the
+operator — `docker compose … --build` — and there is no plan to publish it to a
+registry; a self-hosted archive should not depend on a third-party image feed.)
 
 **What.** A metrics endpoint (Prometheus text on the admin port, same counters the
-dashboard reads — ADR-009), publishing the image to a registry on tags (multi-arch:
-the CI builder is amd64, colima on Apple silicon is arm64), and the
-upstream-replacement procedure per
+dashboard reads — ADR-009) and the upstream-replacement procedure per
 [ADR-003](adr/adr-003-public-clio-cluster-for-alpha-beta.md). Prerequisite for anyone
 running this against a real filing deadline.
 
