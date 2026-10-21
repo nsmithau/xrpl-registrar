@@ -21,8 +21,8 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
       xrpl:
-        specifier: 5.2.0
-        version: 5.2.0
+        specifier: 5.3.0
+        version: 5.3.0
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -960,10 +960,6 @@ packages:
     resolution: {integrity: sha512-qad61CYAqIi8H7DuPnuDpj40wrXY8wYrc1YbuDcA9G/NZG0Uu8unHNbTC6Itz8SlOSL0P/nF/8HTFW/1caVlTg==}
     engines: {node: '>= 18'}
 
-  ripple-keypairs@3.0.0:
-    resolution: {integrity: sha512-lE69pD0E8hFNCqZoVXRyY45Yi8Ku+Qw7Rf1qRwPj4nOi34vp9NAuwzfiJH1IwXGWNCfEkwVfctG99CPTEoUf+g==}
-    engines: {node: '>= 18'}
-
   ripple-keypairs@3.1.0:
     resolution: {integrity: sha512-yeqN768gaHStQ76qwaJ2TGxIGMXA4c9tg32n1zMHUWbyfEKXA70XOUH8SQdnAnIQNCASd8hzBZ8Edoqcd+a+IA==}
     engines: {node: '>= 18'}
@@ -1162,8 +1158,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xrpl@5.2.0:
-    resolution: {integrity: sha512-wkP4BUsplEJVOaoppr4XNE/yNRGV7GO9/UUPPNaOima1wgLLPJGzE9RGfui5zs1zr9WMDIG7ADFSBveNEPPHig==}
+  xrpl@5.3.0:
+    resolution: {integrity: sha512-sdyi7qqJ13U+nMllHgxJTWbQm/Tk8uzhBmeTKwhI9WxkHuekPfbvJ3BDopXO2vMfsty7lBja0ACSHEUKLz3F/w==}
     engines: {node: '>=20.19.0'}
 
   xtend@4.0.2:
@@ -1547,7 +1543,7 @@ snapshots:
   '@xrplf/secret-numbers@3.0.0':
     dependencies:
       '@xrplf/isomorphic': 1.0.2
-      ripple-keypairs: 3.0.0
+      ripple-keypairs: 3.1.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -1956,15 +1952,6 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  ripple-keypairs@3.0.0:
-    dependencies:
-      '@noble/curves': 2.3.0
-      '@xrplf/isomorphic': 1.0.2
-      ripple-address-codec: 5.0.1
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   ripple-keypairs@3.1.0:
     dependencies:
       '@noble/curves': 2.3.0
@@ -2107,7 +2094,7 @@ snapshots:
 
   ws@8.21.3: {}
 
-  xrpl@5.2.0:
+  xrpl@5.3.0:
     dependencies:
       '@scure/bip32': 2.3.0
       '@scure/bip39': 2.3.0
