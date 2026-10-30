@@ -59,7 +59,7 @@
     "verify": "tsx --env-file-if-exists=.env examples/verify-balances.ts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite": "^0.5.12",
     "big.js": "^7.0.1",
     "pg": "^8.23.1",
     "ws": "^8.22.0",
